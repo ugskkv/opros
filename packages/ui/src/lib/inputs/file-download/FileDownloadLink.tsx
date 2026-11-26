@@ -1,0 +1,81 @@
+import { Stack, Typography } from '@mui/material';
+import { DownloadFileData } from '@rapid-cmi5/cmi5-build-common';
+import { useEffect, useState } from 'react';
+
+import FilePresentIcon from '@mui/icons-material/FilePresent';
+
+/**
+ * FileDownloadLink
+ * Displays href link for downloading a file
+ * @param param0
+ * @returns React Component
+ */
+export const FileDownloadLink = ({
+  fileData,
+  filePath,
+  auDir,
+  getLinkUrl,
+}: {
+  fileData: DownloadFileData;
+  filePath: string;
+  auDir: string;
+  getLinkUrl?: (
+    filePath: string,
+    slidePath: string,
+    fileType?: string,
+    shouldNotCache?: boolean,
+  ) => Promise<string | null>;
+}) => {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadFile = async () => {
+      if (getLinkUrl) {
+        const blobUrl = await getLinkUrl?.(
+          filePath,
+          auDir,
+          fileData.type,
+          true,
+        );
+        setBlobUrl(blobUrl);
+      } else {
+        setBlobUrl(filePath);
+      }
+    };
+
+    if (fileData.path) {
+      loadFile();
+    }
+  }, [auDir, fileData.path, fileData.type, getLinkUrl]);
+
+  return (
+    // eslint-disable-next-line react/jsx-no-useless-fragment
+    <>
+      {blobUrl && (
+        <Stack
+          direction="row"
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            my: '8px',
+            // Theme primary meets WCAG 1.4.3 (4.5:1) in both light and dark modes;
+            // the global link color (#6f96ff) fails on light backgrounds
+            '& a, & a:visited, & a:hover': { color: 'primary.main' },
+            '& a:hover': { textDecoration: 'underline' },
+          }}
+        >
+          <a
+            href={`${blobUrl}`}
+            download={fileData.name}
+            aria-label={`Download ${fileData.name}`}
+            style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+          >
+            <FilePresentIcon aria-hidden="true" />
+            {fileData.name}
+          </a>
+        </Stack>
+      )}
+      {!blobUrl && <Typography>Loading link...</Typography>}
+    </>
+  );
+};

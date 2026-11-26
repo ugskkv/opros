@@ -1,0 +1,410 @@
+## 0.26.0 (2026-11-18)
+
+This was a version bump only, there were no code changes.
+
+## 0.25.1 (2026-11-05)
+
+This was a version bump only, there were no code changes.
+
+## 0.25.0 (2026-11-04)
+
+### 🚀 Features
+
+- **rapid-cmi5:** add support for mermaid diagrams ([#252](https://github.com/ByLightSDC/rapidcmi5/pull/252))
+
+### 🩹 Fixes
+
+- chrome no longer blocks edits to the git config file ([10d594ba](https://github.com/ByLightSDC/rapidcmi5/commit/10d594ba))
+- **rapid-cmi5-editor:** match quiz editor card styling to other activities ([fe53c45b](https://github.com/ByLightSDC/rapidcmi5/commit/fe53c45b))
+
+### ❤️ Thank You
+
+- Aaron Crawford @aaiirr123
+- mattkeele-bylight
+- Megan Bohland
+
+## 0.24.0 (2026-10-26)
+
+### 🩹 Fixes
+
+- **rapid-cmi5-player:** users should not get slide progress if autograders or api fails happen ([#249](https://github.com/ByLightSDC/rapidcmi5/pull/249))
+- **rapid-cmi5-player:** slide progress adjustment to view only progress ([#250](https://github.com/ByLightSDC/rapidcmi5/pull/250))
+- **rapid-cmi5-player:** cmi5 player slide titles that are too long should have tooltips and ellipses ([#251](https://github.com/ByLightSDC/rapidcmi5/pull/251))
+- **rapidcmi5-editor:** scenario selection improvement ([#248](https://github.com/ByLightSDC/rapidcmi5/pull/248))
+
+### ❤️ Thank You
+
+- mattkeele-bylight
+
+## 0.23.0 (2026-10-08)
+
+### 🚀 Features
+
+- **cmi5-builder:** quiz markers in mkdocs ([0bb4d449](https://github.com/ByLightSDC/rapidcmi5/commit/0bb4d449))
+- **cmi5-builder:** mkdocs converts tabs to rc5 tabs ([ff3b0487](https://github.com/ByLightSDC/rapidcmi5/commit/ff3b0487))
+- **cmi5-builder:** added in theme to course meta file ([a41d68b4](https://github.com/ByLightSDC/rapidcmi5/commit/a41d68b4))
+- **cmi5-builder:** moodle upload now allows mkdocs conversion ([cca3a1bb](https://github.com/ByLightSDC/rapidcmi5/commit/cca3a1bb))
+
+### 🩹 Fixes
+
+- **cmi5-builder:** now excepts mkdocs.yml or mkdocs.yaml ([24cf687a](https://github.com/ByLightSDC/rapidcmi5/commit/24cf687a))
+- **cmi5-builder:** mkdocs conversions now correctly creates modules ([d8eca570](https://github.com/ByLightSDC/rapidcmi5/commit/d8eca570))
+- **cmi5-builder:** table parsi ng issue ([a53b9524](https://github.com/ByLightSDC/rapidcmi5/commit/a53b9524))
+- **cmi5-builder:** remove bug which forced scenario with course-meta ([6cbdbe0d](https://github.com/ByLightSDC/rapidcmi5/commit/6cbdbe0d))
+- **rapid-cmi5-editor:** Fix e2e tests that were broken by recent moodle update ([#246](https://github.com/ByLightSDC/rapidcmi5/pull/246))
+
+### ❤️ Thank You
+
+- Aaron Crawford
+- mattkeele-bylight
+
+## 0.22.1 (2026-10-01)
+
+### 🩹 Fixes
+
+- **cc-cmi5-player:** fix low contrast on download file links ([bfd64170](https://github.com/ByLightSDC/rapidcmi5/commit/bfd64170))
+
+### ❤️ Thank You
+
+- Megan Bohland
+
+## 0.22.0 (2026-09-28)
+
+### 🚀 Features
+
+- add in activity and au completion notifications ([1cb08d01](https://github.com/ByLightSDC/rapidcmi5/commit/1cb08d01))
+- **cmi5-player:** added in CTF answer cache ([7eb58d3b](https://github.com/ByLightSDC/rapidcmi5/commit/7eb58d3b))
+
+### 🩹 Fixes
+
+- **cmi5-player:** quiz completion showing across slides ([3aef1b33](https://github.com/ByLightSDC/rapidcmi5/commit/3aef1b33))
+
+### ❤️ Thank You
+
+- Aaron Crawford @aaiirr123
+
+## 0.21.0 (2026-09-17)
+
+### 🚀 Features
+
+- make tab panel keyboard-reachable and announce content changes ([92314501](https://github.com/ByLightSDC/rapidcmi5/commit/92314501))
+
+### 🩹 Fixes
+
+- give file download links a single accessible control ([c2289fbe](https://github.com/ByLightSDC/rapidcmi5/commit/c2289fbe))
+- manage focus for full screen image dialog ([9a4fca47](https://github.com/ByLightSDC/rapidcmi5/commit/9a4fca47))
+- add vertical spacing between file download links ([67da8c4e](https://github.com/ByLightSDC/rapidcmi5/commit/67da8c4e))
+- correct ARIA issues on image label marker button ([5adbb98a](https://github.com/ByLightSDC/rapidcmi5/commit/5adbb98a))
+- launch url for local testing was not using the correct url ([db91d537](https://github.com/ByLightSDC/rapidcmi5/commit/db91d537))
+- progress bar ([#240](https://github.com/ByLightSDC/rapidcmi5/pull/240))
+- **cc-cmi5-player:** announce fullscreen image dialog state and title on hover ([a9fa600a](https://github.com/ByLightSDC/rapidcmi5/commit/a9fa600a))
+- **cc-cmi5-player:** restore image title tooltip fusion dropped by merge ([92cb590f](https://github.com/ByLightSDC/rapidcmi5/commit/92cb590f))
+- **cc-cmi5-player:** match Build Info button aria-label to its visible tooltip ([e548f09d](https://github.com/ByLightSDC/rapidcmi5/commit/e548f09d))
+- **rapid-cmi5-ui:** add Escape as a reliable close path for image labels ([146c93d2](https://github.com/ByLightSDC/rapidcmi5/commit/146c93d2))
+
+### ❤️ Thank You
+
+- Aaron Crawford @aaiirr123
+- Megan Bohland
+
+## 0.20.0 (2026-09-04)
+
+### 🚀 Features
+
+- make tab panel keyboard-reachable and announce content changes
+
+### 🩹 Fixes
+
+- give file download links a single accessible control
+- add vertical spacing between file download links
+
+### ❤️ Thank You
+
+- Megan Bohland
+
+## 0.19.0 (2026-08-19)
+
+### 🚀 Features
+
+- Add generic text support to audio component (CCUI-3042)
+- NVDA added lang text selection support (CCUI-3036)
+- make image marker button toggle content on/off
+- initial commit to prevent create/rename duplicate lessons (CCUI-2775)
+- restore focus to video after exiting fullscreen
+- **cmi5-editor:** Youtube directive controls visible in player
+- **cmi5_player:** Filter anim logging to 'anim' namespace
+
+### 🩹 Fixes
+
+- stop video edit dialog from resizing and block negative dimensions
+- show validation error when video width/height goes negative
+- fix stepper buttons announcing wrong step numbers to screen readers
+- align helper icons so centered / fix so no shifting up when validation errors are shown
+- link stepper buttons to their content panels for screen readers
+- reject zero as well as negative video width/height
+- move focus to step heading on step change for screen readers
+- add delete icon to audio/video edit toolbars
+- round decimal width/height entries instead of truncating them
+- announce image label toggle state to screen readers
+- key step-heading focus effect on step, not derived title
+- match toggle-clock aria-label to visible tooltip text
+- select audio component when clicking its native control bar
+- remove false-positive scrollbar in project selection doc modals
+- keep audio edit toolbar clear of native player controls
+- announce transcript cue seeks to screen readers in audio player
+- announce transcript cue seeks to screen readers in audio player
+- stop NVDA announcing read-only code blocks as editable with autocomplete
+- announce read-only code blocks as "code block" to screen readers
+- fall back to title for image alt text and fix stray period in fullscreen aria-label
+- **cmi5-player:** Anim Pause/Play NVDA and slide navigation support (CCUI-3028)
+
+### ❤️ Thank You
+
+- Matt Keele
+- mattkeele-bylight
+- Megan Bohland
+- micodevstar
+
+## 0.18.1 (2026-07-01)
+
+### 🩹 Fixes
+
+- Moodle-launched scenario header never updates to Ready ([#204](https://github.com/ByLightSDC/rapidcmi5/pull/204))
+
+### ❤️ Thank You
+
+- mattkeele-bylight
+
+## 0.18.0 (2026-06-26)
+
+### 🚀 Features
+
+- Added in the ability to launch a real cmi5 link and scenario
+- fix for copy pasted blocks within anim blocks
+- Added in React Query and unified electron and web app clients
+- Caption support to audio component (CCUI-2817)
+
+### 🩹 Fixes
+
+- Fonts paths corrected and changed how default images operate #CCUI-2911
+- prevent stale plugin re-init from clobbering animation frontmatter CCUI-3004
+- honor lesson contentWidth for audio in player (CCUI-3005)
+- anim text clarification (CCUI-2684)
+
+### ❤️ Thank You
+
+- Aaron Crawford
+- Matt Keele
+- mattkeele-bylight
+
+## 0.17.0 (2026-06-26)
+
+### 🚀 Features
+
+- Added in the ability to launch a real cmi5 link and scenario
+- fix for copy pasted blocks within anim blocks
+- Added in React Query and unified electron and web app clients
+- Caption support to audio component (CCUI-2817)
+
+### 🩹 Fixes
+
+- Fonts paths corrected and changed how default images operate #CCUI-2911
+- prevent stale plugin re-init from clobbering animation frontmatter CCUI-3004
+- honor lesson contentWidth for audio in player (CCUI-3005)
+- anim text clarification (CCUI-2684)
+
+### ❤️ Thank You
+
+- Aaron Crawford
+- Matt Keele
+- mattkeele-bylight
+
+## 0.16.0 (2026-05-28)
+
+### 🚀 Features
+
+- Added in the ability to launch a real cmi5 link and scenario ([#182](https://github.com/ByLightSDC/rapidcmi5/pull/182))
+- fix for copy pasted blocks within anim blocks ([#181](https://github.com/ByLightSDC/rapidcmi5/pull/181))
+
+### 🩹 Fixes
+
+- Fonts paths corrected and changed how default images operate #CCUI-2911 ([#178](https://github.com/ByLightSDC/rapidcmi5/pull/178))
+- prevent stale plugin re-init from clobbering animation frontmatter CCUI-3004 ([edb4f128](https://github.com/ByLightSDC/rapidcmi5/commit/edb4f128))
+
+### ❤️ Thank You
+
+- Aaron Crawford @aaiirr123
+- Matt Keele
+- mattkeele-bylight
+
+## 0.15.0 (2026-05-19)
+
+### 🩹 Fixes
+
+- Delete base folder on failed clone ([#179](https://github.com/ByLightSDC/rapidcmi5/pull/179))
+- Correct eslint paths and fix absolute imports ([#177](https://github.com/ByLightSDC/rapidcmi5/pull/177))
+
+### ❤️ Thank You
+
+- Aaron Crawford @aaiirr123
+
+## 0.14.0 (2026-05-11)
+
+### 🩹 Fixes
+
+- Fix auto save for forms ([#166](https://github.com/ByLightSDC/rapidcmi5/pull/166))
+
+### ❤️ Thank You
+
+- Aaron Crawford @aaiirr123
+
+## 0.13.7 (2026-05-10)
+
+This was a version bump only, there were no code changes.
+
+## 0.13.6 (2026-05-10)
+
+This was a version bump only, there were no code changes.
+
+## 0.13.5 (2026-05-09)
+
+This was a version bump only, there were no code changes.
+
+## 0.13.4 (2026-05-08)
+
+This was a version bump only, there were no code changes.
+
+## 0.13.3 (2026-05-08)
+
+This was a version bump only, there were no code changes.
+
+## 0.13.2 (2026-05-08)
+
+This was a version bump only, there were no code changes.
+
+## 0.13.1 (2026-05-08)
+
+This was a version bump only, there were no code changes.
+
+## 0.13.0 (2026-05-08)
+
+### 🚀 Features
+
+- Add slides improvements ([bf074fa](https://github.com/ByLightSDC/rapidcmi5/commit/bf074fa))
+- CAC Based SSO ([237093f](https://github.com/ByLightSDC/rapidcmi5/commit/237093f))
+- Improve nav panel and add in collapse ([f3d0580](https://github.com/ByLightSDC/rapidcmi5/commit/f3d0580))
+- Added in coding agent integrations ([#148](https://github.com/ByLightSDC/rapidcmi5/issues/148))
+
+### 🩹 Fixes
+
+- Use editor root instead of document for mouse down events ([#149](https://github.com/ByLightSDC/rapidcmi5/pull/149))
+
+### ❤️ Thank You
+
+- Aaron Crawford @aaiirr123
+
+## 0.12.4 (2026-04-28)
+
+This was a version bump only, there were no code changes.
+
+## 0.12.3 (2026-04-28)
+
+This was a version bump only, there were no code changes.
+
+## 0.12.2 (2026-04-28)
+
+This was a version bump only, there were no code changes.
+
+## 0.12.1 (2026-04-22)
+
+This was a version bump only, there were no code changes.
+
+## 0.12.0 (2026-04-14)
+
+This was a version bump only, there were no code changes.
+
+## 0.11.0 (2026-03-30)
+
+This was a version bump only, there were no code changes.
+
+## 0.10.4 (2026-03-30)
+
+### 🚀 Features
+
+- added automated npm release when a tag is created ([17ac632](https://github.com/ByLightSDC/rapidcmi5/commit/17ac632))
+
+### 🩹 Fixes
+
+- Added base project to the nx release process ([5306fe8](https://github.com/ByLightSDC/rapidcmi5/commit/5306fe8))
+- Correcting nx imports for npm packages to work correctly. ([de73773](https://github.com/ByLightSDC/rapidcmi5/commit/de73773))
+- CMI5 Player no longer blanks out if slide data is the same between multiple slides ([33b39ba](https://github.com/ByLightSDC/rapidcmi5/commit/33b39ba))
+
+### ❤️ Thank You
+
+- Aaron Crawford @aaiirr123
+
+## 0.10.3 (2026-03-10)
+
+This was a version bump only, there were no code changes.
+
+## 0.10.2 (2026-03-09)
+
+### 🚀 Features
+
+- added automated npm release when a tag is created ([17ac632](https://github.com/ByLightSDC/rapidcmi5/commit/17ac632))
+
+### 🩹 Fixes
+
+- Added base project to the nx release process ([5306fe8](https://github.com/ByLightSDC/rapidcmi5/commit/5306fe8))
+- Correcting nx imports for npm packages to work correctly. ([de73773](https://github.com/ByLightSDC/rapidcmi5/commit/de73773))
+
+### ❤️ Thank You
+
+- Aaron Crawford @aaiirr123
+
+## 0.10.1 (2026-03-09)
+
+### 🚀 Features
+
+- added automated npm release when a tag is created ([17ac632](https://github.com/ByLightSDC/rapidcmi5/commit/17ac632))
+
+### 🩹 Fixes
+
+- Added base project to the nx release process ([5306fe8](https://github.com/ByLightSDC/rapidcmi5/commit/5306fe8))
+- Correcting nx imports for npm packages to work correctly. ([de73773](https://github.com/ByLightSDC/rapidcmi5/commit/de73773))
+
+### ❤️ Thank You
+
+- Aaron Crawford @aaiirr123
+
+## v0.10.0 (2026-03-09)
+
+### 🚀 Features
+
+- added automated npm release when a tag is created ([17ac632](https://github.com/ByLightSDC/rapidcmi5/commit/17ac632))
+
+### 🩹 Fixes
+
+- Added base project to the nx release process ([5306fe8](https://github.com/ByLightSDC/rapidcmi5/commit/5306fe8))
+
+### ❤️ Thank You
+
+- Aaron Crawford @aaiirr123
+
+## 0.8.6 (2026-03-09)
+
+### 🚀 Features
+
+- added automated npm release when a tag is created ([17ac632](https://github.com/ByLightSDC/rapidcmi5/commit/17ac632))
+
+### 🩹 Fixes
+
+- Added base project to the nx release process ([5306fe8](https://github.com/ByLightSDC/rapidcmi5/commit/5306fe8))
+
+### ❤️ Thank You
+
+- Aaron Crawford @aaiirr123
+
+## 0.8.5 (2026-03-09)
+
+This was a version bump only, there were no code changes.

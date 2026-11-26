@@ -1,0 +1,618 @@
+import { MDXEditorMethods } from '@mdxeditor/editor';
+
+import {
+  createContext,
+  RefObject,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+} from 'react';
+import { Message, MessageType } from '../../course-builder/CourseBuilderTypes';
+import { useDispatch, useSelector } from 'react-redux';
+
+import { GitContext } from '../../course-builder/GitViewer/session/GitContext';
+
+import {
+  createCourseModalId,
+  downloadCmi5ZipModalId,
+  saveCourseFileModalId,
+  testInPlayerModalId,
+  warningModalId,
+} from '../modals/constants';
+import { ILessonNode } from '../drawers/components/LessonTreeNode';
+import {
+  MoveOnCriteriaEnum,
+  Operation,
+  CourseAU,
+  Rc5Theme,
+  CourseData,
+  SlideType,
+} from '@rapid-cmi5/cmi5-build-common';
+import {
+  debugLog,
+  debugLogError,
+  setModal,
+  validateYamlFrontmatter,
+} from '@rapid-cmi5/ui';
+import {
+  currentCourse,
+  currentSlideNum,
+  courseDataCache,
+  currentAu,
+  currentBlock,
+  updateBlockIndex,
+  updateAuIndex,
+  navigateSlide,
+  updateDisplayText,
+  addCourseOperation,
+  removeCourseAu,
+  updateDirtyDisplay,
+  updateCourseData,
+  updateCourseAuData,
+  updateCourseSlideData,
+  resetCourseOperations,
+  saveSlideContent,
+  setIsLessonMounted,
+  changeViewMode,
+} from '../../../redux/courseBuilderReducer';
+
+interface tProviderProps {
+  isEnabled?: boolean;
+  children?: JSX.Element;
+}
+
+interface IRC5Context {
+  isEnabled?: boolean;
+  lessonSlides: SlideType[];
+  addEditor: (ref: RefObject<MDXEditorMethods>) => void;
+  removeEditor: () => void;
+  changeCourseName: (newName: string) => void;
+  changeLessonMoveOn: (
+    moveOn: MoveOnCriteriaEnum,
+    element: ILessonNode,
+    slideDwellSeconds?: number,
+  ) => void;
+  changeLessonName: (newName: string, element: ILessonNode) => void;
+  changeSlideName: (newName: string, element: ILessonNode) => void;
+  changeCourseTheme: (theme: Rc5Theme) => void;
+  deleteLesson: (lessonIndex: number) => void;
+  discardLessonChanges: () => void;
+  saveCourseFile: () => Promise<string[]>;
+  saveSlide: () => void;
+  saveMarkdownToCurrentSlide: (markdown: string) => boolean;
+  getMarkdownData: () => string | undefined;
+  sendMessage: (message: Message) => void;
+}
+
+/**
+ * Context for Building CMI5 Course
+ * @see ICourseBuilderContext
+ * @return {Context} React Context
+ */
+export const RC5Context = createContext<IRC5Context>({
+  isEnabled: true,
+  lessonSlides: [],
+  addEditor: (editorRef: RefObject<MDXEditorMethods>) => {},
+  removeEditor: () => {},
+  changeCourseName: (newName: string) => {},
+  changeLessonMoveOn: (moveOn: MoveOnCriteriaEnum, element: ILessonNode) => {},
+  changeCourseTheme: (theme: Rc5Theme) => {},
+  changeLessonName: (newName: string, element: ILessonNode) => {},
+  changeSlideName: (newName: string, element: ILessonNode) => {},
+  deleteLesson: (lessonIndex: number) => {},
+  discardLessonChanges: () => {},
+  saveCourseFile: async () => [],
+  saveSlide: () => {},
+  saveMarkdownToCurrentSlide: (markdown: string) => false,
+  getMarkdownData: () => {
+    return undefined;
+  },
+  sendMessage: (message: Message) => {},
+});
+
+// Project Context Provider
+export const RC5ContextProvider: any = (props: tProviderProps) => {
+  const { children, isEnabled = true } = props;
+  const dispatch = useDispatch();
+  const { handleLoadCourse, syncCurrentCourseWithGit, handleRenameCourse } =
+    useContext(GitContext);
+  const currentCourseName = useSelector(currentCourse);
+  const currentSlideIndex = useSelector(currentSlideNum);
+  const courseData = useSelector(courseDataCache);
+  const currentAuIndex = useSelector(currentAu);
+  const currentBlockIndex = useSelector(currentBlock);
+
+  const editorRef = useRef<RefObject<MDXEditorMethods> | null>(null);
+
+  const lessonSlides = useMemo(() => {
+    //defensive
+    if (
+      !courseData ||
+      !courseData.blocks ||
+      currentBlockIndex > courseData.blocks.length - 1
+    ) {
+      if (
+        courseData &&
+        courseData.blocks &&
+        currentBlockIndex > courseData.blocks.length - 1
+      ) {
+        dispatch(updateBlockIndex(0));
+      }
+      return [];
+    }
+    if (courseData && currentAuIndex >= 0 && currentBlockIndex >= 0) {
+      const currentBlock = courseData.blocks[currentBlockIndex];
+      if (!currentBlock || !currentBlock.aus || currentBlock.aus.length === 0) {
+        return [];
+      }
+
+      const normAuIndex = Math.min(currentBlock.aus.length - 1, currentAuIndex);
+      if (normAuIndex !== currentAuIndex) {
+        dispatch(updateAuIndex(normAuIndex));
+      }
+
+      const currentAu = currentBlock.aus[normAuIndex];
+      if (!currentAu || !currentAu.slides || currentAu.slides.length === 0) {
+        return [];
+      }
+
+      const normSlideIndex = Math.min(
+        currentAu.slides.length - 1,
+        currentSlideIndex,
+      );
+      if (normSlideIndex !== currentSlideIndex) {
+        dispatch(navigateSlide(normSlideIndex));
+      }
+
+      const currentSlide = currentAu.slides[normSlideIndex];
+      if (!currentSlide) {
+        return [];
+      }
+
+      const content = currentSlide.content as string;
+      dispatch(updateDisplayText(content));
+      return currentAu.slides;
+    }
+
+    return [];
+  }, [
+    courseData,
+    currentAuIndex,
+    currentBlockIndex,
+    currentSlideIndex,
+    dispatch,
+  ]);
+
+  const onAddEditor = (ref: RefObject<MDXEditorMethods>) => {
+    editorRef.current = ref;
+  };
+
+  const onRemoveEditor = () => {
+    editorRef.current = null;
+  };
+
+  const getMarkdownData = () => {
+    return editorRef.current?.current?.getMarkdown();
+  };
+
+  const onDeleteLesson = useCallback(
+    (lessonIndex: number) => {
+      debugLog('onDeleteLesson', lessonIndex);
+
+      if (
+        !courseData ||
+        !courseData.blocks ||
+        !courseData.blocks[currentBlockIndex]
+      ) {
+        debugLogError('Course data not available for lesson deletion');
+        return;
+      }
+
+      const block = courseData.blocks[currentBlockIndex];
+      if (!block || !block.aus) {
+        debugLogError('Block or aus not available for lesson deletion');
+        return;
+      }
+
+      const au = block.aus[lessonIndex];
+      if (!au) {
+        debugLogError('AU not found at lesson index');
+        return;
+      }
+
+      const lessonCount = block.aus.length;
+      if (lessonCount <= 1) {
+        dispatch(
+          setModal({
+            type: warningModalId,
+            id: '',
+            name: '',
+            meta: {
+              message: 'You MUST have at least one lesson in your course.',
+              title: 'Error Deleting Lesson',
+            },
+          }),
+        );
+        return;
+      }
+
+      const currentAu = block.aus[currentAuIndex];
+      if (!currentAu) {
+        debugLogError('Current AU not found');
+        return;
+      }
+
+      dispatch(
+        addCourseOperation({
+          filepath: au.dirPath,
+          operation: Operation.Delete,
+        }),
+      );
+
+      const newLessonIndex = block.aus.findIndex(
+        (lesson) => lesson.dirPath === currentAu.dirPath,
+      );
+
+      dispatch(updateAuIndex(newLessonIndex));
+
+      dispatch(
+        removeCourseAu({
+          blockIndex: currentBlockIndex,
+          lessonIndex: lessonIndex,
+        }),
+      );
+      dispatch(updateDirtyDisplay({ reason: 'delete lesson' }));
+    },
+    [courseData, currentBlockIndex, dispatch],
+  );
+
+  const onChangeCourseName = useCallback(
+    (newName: string) => {
+      if (!newName) {
+        return;
+      }
+
+      const newCourseData: CourseData = {
+        ...courseData,
+      };
+
+      dispatch(updateCourseData(newCourseData));
+
+      dispatch(updateDirtyDisplay({ reason: 'change course name' }));
+      handleRenameCourse(newName, newCourseData);
+    },
+    [courseData, dispatch],
+  );
+
+  const onChangeLessonMoveOn = useCallback(
+    (
+      moveOnCriteria: MoveOnCriteriaEnum,
+      element: ILessonNode,
+      slideDwellSeconds?: number,
+    ) => {
+      if (element.id === undefined) {
+        return;
+      }
+      const lessonIndex = element.id as number;
+
+      const au: CourseAU = {
+        ...courseData.blocks[currentBlockIndex].aus[lessonIndex],
+        moveOnCriteria: moveOnCriteria,
+        ...(slideDwellSeconds !== undefined && { slideDwellSeconds }),
+      };
+
+      dispatch(
+        updateCourseAuData({
+          au,
+          blockIndex: currentBlockIndex,
+          lessonIndex,
+        }),
+      );
+      dispatch(
+        updateDirtyDisplay({ reason: 'change lesson move on criteria' }),
+      );
+    },
+    [courseData, currentBlockIndex, dispatch],
+  );
+
+  const onChangeCourseTheme = useCallback(
+    (theme: Rc5Theme) => {
+      dispatch(updateCourseData({ ...courseData, courseTheme: theme }));
+      dispatch(updateDirtyDisplay({ reason: 'change course theme settings' }));
+    },
+    [courseData],
+  );
+
+  const onChangeLessonName = useCallback(
+    (newName: string, element: ILessonNode) => {
+      if (element.id === undefined) {
+        return;
+      }
+      const lessonIndex = element.id as number;
+
+      if (
+        !courseData ||
+        !courseData.blocks ||
+        !courseData.blocks[currentBlockIndex] ||
+        !courseData.blocks[currentBlockIndex].aus ||
+        !courseData.blocks[currentBlockIndex].aus[lessonIndex]
+      ) {
+        debugLogError('Course data or AU not available for lesson name change');
+        return;
+      }
+
+      const au: CourseAU = {
+        ...courseData.blocks[currentBlockIndex].aus[lessonIndex],
+        auName: newName,
+      };
+
+      dispatch(
+        updateCourseAuData({
+          au,
+          blockIndex: currentBlockIndex,
+          lessonIndex,
+        }),
+      );
+      dispatch(updateDirtyDisplay({ reason: 'change lesson name' }));
+    },
+    [courseData, currentBlockIndex, dispatch],
+  );
+
+  const onChangeSlideName = useCallback(
+    (newName: string, element: ILessonNode) => {
+      if (element.lesson === undefined || element.slide === undefined) {
+        return;
+      }
+
+      if (
+        !courseData ||
+        !courseData.blocks ||
+        !courseData.blocks[currentBlockIndex] ||
+        !courseData.blocks[currentBlockIndex].aus ||
+        !courseData.blocks[currentBlockIndex].aus[element.lesson] ||
+        !courseData.blocks[currentBlockIndex].aus[element.lesson].slides ||
+        !courseData.blocks[currentBlockIndex].aus[element.lesson].slides[
+          element.slide
+        ]
+      ) {
+        debugLogError(
+          'Course data or slide not available for slide name change',
+        );
+        return;
+      }
+
+      const slide = {
+        ...courseData.blocks[currentBlockIndex].aus[element.lesson].slides[
+          element.slide
+        ],
+        slideTitle: newName,
+      };
+
+      dispatch(
+        updateCourseSlideData({
+          blockIndex: currentBlockIndex,
+          lessonIndex: element.lesson,
+          slide,
+          slideIndex: element.slide,
+        }),
+      );
+      dispatch(updateDirtyDisplay({ reason: 'change slide name' }));
+    },
+    [courseData, currentBlockIndex, dispatch],
+  );
+
+  const onDiscardLessonChanges = useCallback(async () => {
+    dispatch(resetCourseOperations());
+    await handleLoadCourse(currentCourseName);
+  }, [currentCourseName, handleLoadCourse]);
+
+  /**
+   * updates slide data in redux
+   * @param slideContent
+   */
+  const onSaveSlide = () => {
+    const slideContent = getMarkdownData();
+
+    if (typeof slideContent !== 'undefined' && slideContent !== null) {
+      // Validate YAML frontmatter before saving
+      const validationResult = validateYamlFrontmatter(slideContent);
+
+      if (!validationResult.isValid) {
+        // Show error modal to user
+        const errorMsg = validationResult.lineNumber
+          ? `Cannot save slide: Invalid YAML frontmatter at line ${validationResult.lineNumber}\n\n${validationResult.details}`
+          : `Cannot save slide: Invalid YAML frontmatter\n\n${validationResult.details}`;
+
+        console.error('YAML validation error:', validationResult);
+
+        dispatch(
+          setModal({
+            type: warningModalId,
+            id: null,
+            name: null,
+            meta: {
+              title: 'Invalid YAML Frontmatter',
+              message: errorMsg,
+            },
+          }),
+        );
+
+        // Do NOT save - return early
+        return;
+      }
+
+      // YAML is valid - proceed with save
+      dispatch(
+        saveSlideContent({
+          position: currentSlideIndex,
+          content: slideContent || '',
+          skipShouldDirty: true,
+        }),
+      );
+    }
+  };
+
+  const saveMarkdownToCurrentSlide = useCallback(
+    (markdown: string) => {
+      const validationResult = validateYamlFrontmatter(markdown);
+
+      if (!validationResult.isValid) {
+        const errorMsg = validationResult.lineNumber
+          ? `Cannot save slide: Invalid YAML frontmatter at line ${validationResult.lineNumber}\n\n${validationResult.details}`
+          : `Cannot save slide: Invalid YAML frontmatter\n\n${validationResult.details}`;
+
+        console.error('YAML validation error:', validationResult);
+
+        dispatch(
+          setModal({
+            type: warningModalId,
+            id: null,
+            name: null,
+            meta: {
+              title: 'Invalid YAML Frontmatter',
+              message: errorMsg,
+            },
+          }),
+        );
+        return false;
+      }
+
+      dispatch(
+        saveSlideContent({
+          position: currentSlideIndex,
+          content: markdown,
+          skipShouldDirty: true,
+        }),
+      );
+      dispatch(updateDisplayText(markdown));
+      return true;
+    },
+    [currentSlideIndex, dispatch],
+  );
+
+  const containsUuid = (str: string): boolean => {
+    const lastSegment = str.split('/').pop() ?? '';
+
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    return uuidRegex.test(lastSegment);
+  };
+
+  const generateNewCourseId = async () => {
+    const uuid = crypto.randomUUID();
+    const courseId = courseData?.courseId ?? '';
+    const newCourseId = `${courseId}/${uuid}`;
+    return newCourseId;
+  };
+
+  const onSaveCourseFile = useCallback(async () => {
+    // correct old courses without uuid
+    const newCourseData: CourseData = {
+      ...courseData,
+    };
+    if (!containsUuid(courseData.courseId)) {
+      newCourseData.courseId = await generateNewCourseId();
+    }
+
+    const changedFiles = await syncCurrentCourseWithGit(newCourseData);
+    dispatch(updateDirtyDisplay({ counter: 0 }));
+    return changedFiles;
+  }, [courseData, dispatch, syncCurrentCourseWithGit]);
+
+  //#region Message Bus
+  /**
+   * Message Bus for communicating between context and drawing canvas
+   * @param {Message} message Sends message
+   * @returns
+   */
+  const sendMessage = async (message: Message) => {
+    switch (message.type) {
+      case MessageType.remountLesson:
+        dispatch(setIsLessonMounted(false));
+        break;
+      case MessageType.changeCourse:
+        if (message.meta.coursePath) {
+          await handleLoadCourse(message.meta.coursePath);
+        }
+        break;
+      case MessageType.createCourse:
+        dispatch(
+          setModal({
+            type: createCourseModalId,
+            id: null,
+            name: null,
+            meta: {
+              title: 'Create Course',
+            },
+          }),
+        );
+        break;
+      case MessageType.downloadCourseZip:
+        dispatch(
+          setModal({
+            type: downloadCmi5ZipModalId,
+            id: null,
+            name: null,
+            meta: {
+              title: 'Download Course Zip',
+            },
+          }),
+        );
+        break;
+      case MessageType.testInPlayer:
+        dispatch(
+          setModal({
+            type: testInPlayerModalId,
+            id: null,
+            name: null,
+          }),
+        );
+        break;
+      case MessageType.navigate:
+        if (message?.meta?.meta?.destination) {
+          dispatch(changeViewMode(message.meta.meta.destination));
+        }
+
+        break;
+      case MessageType.saveCourse:
+        dispatch(
+          setModal({
+            type: saveCourseFileModalId,
+            id: null,
+            name: null,
+            meta: {
+              title: 'Save Course?',
+              message: '',
+            },
+          }),
+        );
+    }
+  };
+
+  return (
+    <RC5Context.Provider
+      value={{
+        isEnabled,
+        lessonSlides,
+        addEditor: onAddEditor,
+        changeCourseName: onChangeCourseName,
+        changeLessonMoveOn: onChangeLessonMoveOn,
+        changeCourseTheme: onChangeCourseTheme,
+        changeLessonName: onChangeLessonName,
+        changeSlideName: onChangeSlideName,
+        deleteLesson: onDeleteLesson,
+        discardLessonChanges: onDiscardLessonChanges,
+        removeEditor: onRemoveEditor,
+        saveCourseFile: onSaveCourseFile,
+        saveSlide: onSaveSlide,
+        saveMarkdownToCurrentSlide,
+        getMarkdownData,
+        sendMessage,
+      }}
+    >
+      {children}
+    </RC5Context.Provider>
+  );
+};

@@ -1,0 +1,141 @@
+import {
+  DirectiveEditorProps,
+  readOnly$,
+  useCellValues,
+  useMdastNodeUpdater,
+} from '@mdxeditor/editor';
+import { useContext, useEffect, useMemo, useState } from 'react';
+import { TabsContext } from './TabsContext';
+import { ContainerDirective } from 'mdast-util-directive';
+import { TabContentDirectiveNode } from './types';
+import { Box, useTheme } from '@mui/material';
+import { editorInPlayback$ } from '../../state/vars';
+import { AlignmentToolbarControls } from '../../components/AlignmentToolbarControls';
+import {
+  TextAlign,
+  useScopedAlignmentStyles,
+} from '../shared/useScopedAlignmentStyles';
+import { useFocusWithin } from '../shared/useFocusWithin';
+import { TAB_CONTENT_MIN_HEIGHT } from '../../constants/directiveLayout';
+import { RC5NestedLexicalEditor } from '../shared/RC5NestedLexicalEditor';
+
+/**
+ * Tab Content Editor for tabs plugin
+ * @param props
+ * @returns
+ */
+export const TabContentEditor: React.FC<
+  DirectiveEditorProps<TabContentDirectiveNode>
+> = ({ lexicalNode, mdastNode, parentEditor }) => {
+  const { tab } = useContext(TabsContext);
+  const muiTheme = useTheme();
+  const updateMdastNode = useMdastNodeUpdater();
+  const [isPlayback, readOnly] = useCellValues(editorInPlayback$, readOnly$);
+
+  const [contentIsVisible, setContentIsVisible] = useState(false);
+  const [tabIndex, setTabIndex] = useState(-1);
+  const { isFocused, ref: contentRef } = useFocusWithin<HTMLDivElement>();
+  const rawTextAlign = mdastNode.attributes?.textAlign;
+  const textAlign: TextAlign =
+    rawTextAlign === 'center' || rawTextAlign === 'right'
+      ? rawTextAlign
+      : 'left';
+  const { scopedClass, alignmentStyles } = useScopedAlignmentStyles(
+    textAlign,
+    'tab-content',
+  );
+
+  /**
+   * determine tab index for aria labels
+   * check current tab selection to see if content should be displayed or hidden
+   */
+  useMemo(() => {
+    parentEditor.update(() => {
+      let myTabIndex = -1;
+      const parentKeys = lexicalNode.getParent()?.getChildrenKeys();
+      if (parentKeys) {
+        myTabIndex = parentKeys?.indexOf(lexicalNode.getKey());
+        setTabIndex(myTabIndex);
+        if (myTabIndex === tab) {
+          setContentIsVisible(true);
+          return;
+        }
+
+        setContentIsVisible(false);
+      }
+    });
+  }, [lexicalNode, parentEditor, tab]);
+
+  useEffect(() => {
+    //REF console.log('visible');
+  }, [contentIsVisible]);
+
+  const handleAlignmentChange = (value: 'left' | 'center' | 'right') => {
+    updateMdastNode({
+      ...mdastNode,
+      attributes: {
+        ...mdastNode.attributes,
+        textAlign: value === 'left' ? undefined : value,
+      },
+    });
+  };
+
+  /**
+   * Renders editable tab content
+   */
+  return (
+    <div
+      ref={contentRef}
+      style={{
+        display: contentIsVisible ? undefined : 'none',
+        position: 'relative',
+        border: isFocused ? '1px dashed' : '1px dashed transparent',
+        borderColor: isFocused ? muiTheme.palette.divider : 'transparent',
+        borderRadius: 4,
+        padding: 4,
+      }}
+      role="tabpanel"
+      id={`tabpanel-${tabIndex}`}
+      aria-labelledby={`tab-${tabIndex}`}
+      tabIndex={0}
+    >
+      {alignmentStyles}
+
+      {isFocused && !isPlayback && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 4,
+            right: 4,
+            zIndex: 10,
+            display: 'flex',
+            backgroundColor:
+              muiTheme.palette.mode === 'dark' ? '#282b30e6' : '#EEEEEEe6',
+            borderRadius: 1,
+          }}
+        >
+          <AlignmentToolbarControls
+            currentAlignment={textAlign}
+            onAlignmentChange={handleAlignmentChange}
+            disabled={readOnly}
+          />
+        </Box>
+      )}
+
+      <RC5NestedLexicalEditor<ContainerDirective>
+        block={true}
+        getContent={(node) => node.children}
+        getUpdatedMdastNode={(node, children: any) => {
+          return { ...node, children };
+        }}
+        contentEditableProps={{
+          className: scopedClass,
+          style: { minHeight: TAB_CONTENT_MIN_HEIGHT },
+          'aria-label': mdastNode.attributes?.title
+            ? `${mdastNode.attributes.title} tab content`
+            : `Tab ${tabIndex + 1} content`,
+        }}
+      />
+    </div>
+  );
+};

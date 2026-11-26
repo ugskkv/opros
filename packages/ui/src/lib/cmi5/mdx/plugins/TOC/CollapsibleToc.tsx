@@ -1,0 +1,241 @@
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+
+import {
+  Accordion,
+  AccordionSummary,
+  Typography,
+  AccordionDetails,
+  useTheme,
+  Tooltip,
+  Stack,
+  IconButton,
+  alpha,
+  Box,
+} from '@mui/material';
+import TocIcon from '@mui/icons-material/Toc';
+import { TableOfContentsEntry } from './TocPlugin';
+import CloseIcon from '@mui/icons-material/Close';
+
+import { toolbarRect$ } from '@rapid-cmi5/ui';
+import { useSignalEffect } from '@preact/signals-react';
+
+/**
+ * TOCComponent (Table of Contents Component)
+ *
+ * Renders a collapsible, floating Table of Contents panel for an MDXEditor document.
+ * Each entry in the `tocEntries` array is rendered as a clickable anchor link that
+ * navigates to the corresponding heading in the document. The panel auto-collapses
+ * when the TOC entries change (e.g. when switching documents or editing headings).
+ *
+ * Props:
+ * - tocEntries: Array of tuples representing TOC entries. Each entry has the form:
+ *   [key: NodeKey, text: string, tag: HeadingTagType, id: string]
+ *   where:
+ *     - key: Unique Lexical node key
+ *     - text: Heading text
+ *     - tag: Heading tag (e.g., 'h1', 'h2', etc.)
+ *     - id: Unique string used for anchor navigation
+ * - editor: Reference to the Lexical editor instance (currently unused but reserved for future interaction)
+ * - topOffSet: Optional number to adjust the vertical position of the TOC container
+ *
+ * Intended Behavior:
+ * - Renders a MUI Accordion positioned absolutely in the top-right corner of the page.
+ * - Automatically resets the accordion's expanded state when `tocEntries` changes. (You add a header in edit more, or you naviagate to a new slide)
+ * - On click of a TOC link, collapses the accordion and navigates to the corresponding anchor.
+ *
+ */
+export const TOCComponent = ({
+  tocEntries,
+  editor,
+  defaultTopOffset = 0,
+}: {
+  tocEntries: Array<TableOfContentsEntry>;
+  editor: any;
+  defaultTopOffset?: number;
+}) => {
+  const [topPosition, setTopPosition] = useState<number>(defaultTopOffset);
+
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const [basePath, setBasePath] = useState<string>(
+    window.location.pathname + window.location.search,
+  );
+  const theme = useTheme();
+
+  const toggleExpanded = () => {
+    setIsExpanded((prev) => !prev);
+  };
+
+  useEffect(() => {
+    setBasePath(window.location.pathname + window.location.search);
+  }, [window.location.pathname, window.location.search]);
+
+  useEffect(() => {
+    setIsExpanded(false);
+  }, [tocEntries]);
+
+  /**
+   * Listen for toolbar rect changed and set TOC button top
+   */
+  useSignalEffect(() => {
+    const rect = toolbarRect$.value;
+    setTopPosition(rect?.bottom || defaultTopOffset);
+  });
+
+  const portalTarget = document.getElementById('toc-portal-target');
+
+  const toc = (
+    <nav aria-label="Table of Contents">
+      <Accordion
+        slots={{ heading: 'div' }}
+        expanded={isExpanded}
+        onChange={toggleExpanded}
+        key="TOC"
+        variant="outlined"
+        sx={{
+          zIndex: (theme) => theme.zIndex.appBar + 2,
+          height: isExpanded ? '80%' : undefined, //fixes inf rendering issue in authoring mode
+          overflow: 'auto',
+          position: 'absolute',
+          right: 24,
+          top: topPosition,
+          maxWidth: '320px',
+          backgroundColor: isExpanded ? 'background.default' : 'transparent',
+          borderStyle: 'none',
+          minHeight: 0,
+          padding: '4px',
+          margin: 0,
+          marginTop: isExpanded ? 0 : 2,
+        }}
+      >
+        <AccordionSummary
+          aria-label={
+            isExpanded ? 'Table of Contents' : 'Open Table of Contents'
+          }
+          sx={{
+            zIndex: (theme) => theme.zIndex.appBar + 2,
+            padding: 0,
+            margin: 0,
+            minHeight: 0,
+            maxHeight: '32px',
+            borderRadius: isExpanded ? 0 : 8, //hack to avoid extra vertical space below Table of Contents
+          }}
+          expandIcon={
+            isExpanded ? null : (
+              <Tooltip title="Table of Contents: Click to expand, then click on a heading to jump to its location in the slide.">
+                <span>
+                  <Box
+                    aria-hidden="true"
+                    sx={{
+                      backgroundColor: 'primary.main',
+                      display: 'flex',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      padding: '2px',
+                      borderRadius: 8,
+                      '&:hover': {
+                        bgcolor: alpha(theme.palette.primary.main, 0.3),
+                      },
+                      fontSize: '24px',
+                      width: '32px',
+                      height: '32px',
+                    }}
+                  >
+                    <TocIcon
+                      color="action"
+                      fontSize="inherit"
+                      sx={{
+                        color: 'white',
+                      }}
+                    />
+                  </Box>
+                </span>
+              </Tooltip>
+            )
+          }
+        >
+          {isExpanded && (
+            <Stack
+              direction="row"
+              sx={{
+                marginLeft: '12px',
+                marginRight: '12px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <Typography
+                variant="h5"
+                component="span"
+                align="center"
+                color="primary.main"
+                sx={{
+                  width: '100%',
+                  fontWeight: 500,
+                }}
+              >
+                Table of Contents
+              </Typography>
+              <IconButton
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsExpanded(false);
+                }}
+                aria-label="Close Table of Contents"
+              >
+                <CloseIcon />
+              </IconButton>
+            </Stack>
+          )}
+        </AccordionSummary>
+        {isExpanded && (
+          <AccordionDetails
+            sx={{
+              padding: 0,
+              margin: 0,
+              marginTop: -2,
+            }}
+          >
+            <ul
+              role="list"
+              style={{
+                margin: 0,
+                padding: 0,
+                listStyle: 'none',
+                marginTop: -8, //hack to bring list closer to bottom of Table of Contents
+              }}
+            >
+              {tocEntries.map(([key, text, tag, id]) => (
+                <li
+                  key={key}
+                  style={{
+                    padding: '6px 12px',
+                    marginLeft: `${(parseInt(tag[1]) - 1) * 12}px`,
+                  }}
+                >
+                  <a
+                    href={`${basePath}#${id}`}
+                    style={{
+                      fontSize: '1rem',
+                      display: 'block',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                    onClick={toggleExpanded}
+                  >
+                    {text}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </AccordionDetails>
+        )}
+      </Accordion>
+    </nav>
+  );
+
+  return portalTarget ? createPortal(toc, portalTarget) : toc;
+};

@@ -1,0 +1,368 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., v0.7.0)'
+        required: true
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.tag }}"
+            VERSION="${VERSION#v}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.get_version.outputs.version }}
+          release_name: Release v${{ steps.get_version.outputs.version }}
+          draft: true
+          prerelease: false
+          body: |
+            ## RapidCMI5 v${{ steps.get_version.outputs.version }}
+
+            ### Downloads
+
+            #### Desktop Application
+
+            **macOS:**
+            - Apple Silicon (M1/M2/M3): `RapidCMI5-${{ steps.get_version.outputs.version }}-arm64.dmg`
+            - Intel: `RapidCMI5-${{ steps.get_version.outputs.version }}.dmg`
+
+            **Windows:**
+            - x64: `RapidCMI5 Setup ${{ steps.get_version.outputs.version }}.exe`
+            - ARM64: `RapidCMI5 Setup ${{ steps.get_version.outputs.version }}-arm64.exe`
+
+            **Linux:**
+            - x64: `RapidCMI5-${{ steps.get_version.outputs.version }}.AppImage`
+            - ARM64: `RapidCMI5-${{ steps.get_version.outputs.version }}-arm64.AppImage`
+
+            #### CMI5 Builder image
+
+            Available after the image publishing workflow completes:
+
+            `docker pull ghcr.io/bylightsdc/cmi5-builder:v${{ steps.get_version.outputs.version }}`
+
+            ### Installation
+
+            **macOS:**
+            1. Download the appropriate DMG file for your Mac
+            2. Open the DMG file
+            3. Drag RapidCMI5 to your Applications folder
+            4. The first time you open it, right-click and select "Open" to bypass Gatekeeper
+
+            **Windows:**
+            1. Download the appropriate .exe installer
+            2. Run the installer
+            3. Follow the installation wizard
+
+            **Linux:**
+            1. Download the AppImage file
+            2. Make it executable: `chmod +x RapidCMI5-*.AppImage`
+            3. Run it: `./RapidCMI5-*.AppImage`
+
+            ### Changelog
+            <!-- Add changelog here -->
+  # publish to the npm registry
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+
+      - name: Set up Python 3.11 for node-gyp
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test packages
+        run: npx nx run-many --target=test --projects=packages/* --parallel=3
+
+      - name: Build packages
+        run: npx nx run-many --target=build --projects=packages/* --parallel=3
+
+      - name: Publish @rapid-cmi5/react-editor
+        run: npm publish --provenance
+        working-directory: dist/packages/rapid-cmi5
+
+      - name: Publish @rapid-cmi5/cmi5-build-common
+        run: npm publish --provenance
+        working-directory: dist/packages/common
+
+      - name: Publish @rapid-cmi5/ui
+        run: npm publish --provenance
+        working-directory: dist/packages/ui
+
+  build-cc-cmi5-player:
+    name: Build CMI5 player and builder
+    runs-on: ubuntu-latest
+    needs: create-release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.create-release.outputs.version }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Set up Python 3.11 for node-gyp
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Update package.json version
+        run: |
+          npm version ${{ needs.create-release.outputs.version }} --no-git-tag-version --allow-same-version
+
+      - name: Build cc-cmi5-player
+        run: npx nx build cc-cmi5-player
+
+      - name: Upload player dist as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cc-cmi5-player-dist
+          path: dist/apps/cc-cmi5-player/
+          retention-days: 7
+
+      - name: Zip player dist for release
+        run: zip -r cc-cmi5-player-${{ needs.create-release.outputs.version }}.zip dist/apps/cc-cmi5-player/
+
+      - name: Upload cc-cmi5-player to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.create-release.outputs.version }}
+          draft: true
+          files: cc-cmi5-player-${{ needs.create-release.outputs.version }}.zip
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build cmi5-builder
+        run: npx nx build cmi5-builder
+
+      - name: Upload builder dist as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmi5-builder-dist
+          path: dist/apps/cmi5-builder/
+          retention-days: 7
+
+  publish-cmi5-builder-image:
+    name: Publish cmi5-builder image
+    runs-on: ubuntu-latest
+    needs: [create-release, build-cc-cmi5-player]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.create-release.outputs.version }}
+
+      - name: Download player dist
+        uses: actions/download-artifact@v4
+        with:
+          name: cc-cmi5-player-dist
+          path: dist/apps/cc-cmi5-player
+
+      - name: Download builder dist
+        uses: actions/download-artifact@v4
+        with:
+          name: cmi5-builder-dist
+          path: dist/apps/cmi5-builder
+
+      - name: Verify image inputs
+        run: |
+          test -f dist/apps/cc-cmi5-player/index.html
+          test -f dist/apps/cmi5-builder/package.json
+
+      - name: Prepare image tags
+        id: image
+        env:
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          owner=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          image="ghcr.io/$owner/cmi5-builder"
+          {
+            echo 'tags<<EOF'
+            echo "$image:v$VERSION"
+            if [[ "$VERSION" != *-* ]]; then
+              echo "$image:latest"
+            fi
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/cmi5-builder/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.image.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=v${{ needs.create-release.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-electron:
+    name: Build Electron (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: [create-release, build-cc-cmi5-player]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: darwin
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-2022
+            platform: win32
+    env:
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Set up Python 3.11 for node-gyp
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Update package.json version
+        run: |
+          npm version ${{ needs.create-release.outputs.version }} --no-git-tag-version --allow-same-version
+          (cd apps/rapid-cmi5-electron && npm version ${{ needs.create-release.outputs.version }} --no-git-tag-version --allow-same-version)
+
+      - name: Download cc-cmi5-player artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: cc-cmi5-player-dist
+          path: apps/rapid-cmi5-electron/src/assets/cc-cmi5-player-dist
+
+      - name: Import Code Signing Certificate (macOS)
+        if: ${{ matrix.platform == 'darwin' && env.APPLE_CERTIFICATE != '' }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > $RUNNER_TEMP/certificate.p12
+          security import $RUNNER_TEMP/certificate.p12 -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      - name: Build frontend
+        run: npm run nxe:build:frontend
+
+      - name: Build backend
+        run: npm run nxe:build:backend
+
+      - name: Build Electron app
+        run: npm run nxe:make:app
+        env:
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Notarize DMG (macOS)
+        if: ${{ matrix.platform == 'darwin' && env.APPLE_ID != '' && env.APPLE_CERTIFICATE != '' }}
+        run: |
+          for DMG_PATH in dist/executables/*.dmg; do
+            if [ -f "$DMG_PATH" ]; then
+              echo "Notarizing $DMG_PATH..."
+              xcrun notarytool submit "$DMG_PATH" \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_ID_PASSWORD" \
+                --team-id "$APPLE_TEAM_ID" \
+                --wait || echo "Notarization failed, continuing..."
+              xcrun stapler staple "$DMG_PATH" || echo "Stapling failed, continuing..."
+            fi
+          done
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.create-release.outputs.version }}
+          draft: true
+          files: |
+            dist/executables/*.dmg
+            dist/executables/*.dmg.blockmap
+            dist/executables/*.zip
+            dist/executables/*.zip.blockmap
+            dist/executables/*.AppImage
+            dist/executables/*.AppImage.blockmap
+            dist/executables/*.exe
+            dist/executables/*.exe.blockmap
+            dist/executables/latest*.yml
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

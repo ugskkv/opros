@@ -1,0 +1,106 @@
+/* Югория brand fonts: Unbounded (headings) + Montserrat (body/UI).
+ * Loaded from Google Fonts so no binary files need to be bundled. If you
+ * need an offline build, drop the .ttf files into ./Unbounded and
+ * ./Montserrat and the @font-face rules below will use them. */
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,700&family=Unbounded:wght@400;500;600;700;800&display=swap');
+
+@font-face {
+  font-family: 'Unbounded';
+  src: local('Unbounded-Regular');
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Montserrat';
+  src: local('Montserrat-Regular');
+  font-weight: 400;
+  font-display: swap;
+}
+
+/* Roboto */
+@font-face {
+  font-family: 'Roboto';
+  src:
+    local('Roboto-Bold'),
+    url('./Roboto/Roboto-Bold.ttf') format('truetype');
+  font-weight: normal;
+}
+
+@font-face {
+  font-family: 'Roboto';
+  src:
+    local('Roboto-Italic'),
+    url('./Roboto/Roboto-Italic.ttf') format('truetype');
+  font-weight: normal;
+}
+
+@font-face {
+  font-family: 'Roboto';
+  src:
+    local('Roboto-Medium'),
+    url('./Roboto/Roboto-Medium.ttf') format('truetype');
+  font-weight: normal;
+}
+
+@font-face {
+  font-family: 'Roboto';
+  src:
+    local('Roboto-MediumItalic'),
+    url('./Roboto/Roboto-MediumItalic.ttf') format('truetype');
+  font-weight: normal;
+}
+
+@font-face {
+  font-family: 'Roboto';
+  src:
+    local('Roboto-Regular'),
+    url('./Roboto/Roboto-Regular.ttf') format('truetype');
+  font-weight: normal;
+}
+
+/* BarlowCondensed */
+@font-face {
+  font-family: 'BarlowCondensed';
+  src:
+    local('BarlowCondensed-Bold'),
+    url('./BarlowCondensed/BarlowCondensed-Bold.ttf')
+      format('truetype');
+  font-weight: normal;
+}
+
+@font-face {
+  font-family: 'BarlowCondensed';
+  src:
+    local('BarlowCondensed-Italic'),
+    url('./BarlowCondensed/BarlowCondensed-Italic.ttf')
+      format('truetype');
+  font-weight: normal;
+}
+
+@font-face {
+  font-family: 'BarlowCondensed';
+  src:
+    local('BarlowCondensed-Medium'),
+    url('./BarlowCondensed/BarlowCondensed-Medium.ttf')
+      format('truetype');
+  font-weight: normal;
+}
+
+@font-face {
+  font-family: 'BarlowCondensed';
+  src:
+    local('BarlowCondensed-MediumItalic'),
+    url('./BarlowCondensed/BarlowCondensed-MediumItalic.ttf')
+      format('truetype');
+  font-weight: normal;
+}
+
+@font-face {
+  font-family: 'BarlowCondensed';
+  src:
+    local('BarlowCondensed-Regular'),
+    url('./BarlowCondensed/BarlowCondensed-Regular.ttf')
+      format('truetype');
+  font-weight: normal;
+}

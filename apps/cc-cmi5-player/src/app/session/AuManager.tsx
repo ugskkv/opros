@@ -1,0 +1,567 @@
+import {
+  createContext,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { useDispatch, useSelector } from 'react-redux';
+import {
+  auDisplayInitializedSel,
+  auJsonSel,
+  auViewedSlidesSel,
+  setIsConfigInitialized,
+  setIsDisplayInitialized,
+} from '../redux/auReducer';
+import { activeTabSel, setActiveTab } from '../redux/navigationReducer';
+
+import { progressAU, resumeAU } from '../utils/AuUtils';
+import { cmi5Instance } from '../session/cmi5';
+import { store } from '../redux/store';
+import { checkForDevMode } from '../utils/DevMode';
+import { useCMI5Session } from '../hooks/useCMI5Session';
+import { useOverrideConfigs } from '../hooks/useOverrideConfig';
+import { logger, refreshLoggingConfig } from '../debug';
+import { useAuContent } from '../hooks/useAuContent';
+import {
+  Alert,
+  AlertTitle,
+  Box,
+  CircularProgress,
+  Stack,
+  Typography,
+} from '@mui/material';
+import {
+  ActivityCacheGetState,
+  ActivityCacheSetState,
+  ActivityScore,
+  AuContextProps,
+  AuManagerState,
+  CTFState,
+  CTFStateKey,
+  QuizState,
+  RC5ActivityTypeEnum,
+} from '@rapid-cmi5/cmi5-build-common';
+import MenuLayout from '../components/Menu/MenuLayout';
+
+import { ButtonInfoField, modal, setModal } from '@rapid-cmi5/ui';
+import {
+  classChangeModalId,
+  classPromptModalId,
+} from '../components/CourseModals';
+import { debugLogError } from '../debug';
+import { config } from '@rapid-cmi5/ui';
+import { useActivitySession } from '../hooks/useActivitySession';
+import { handleActivityScoring } from '../utils/LmsStatementManager';
+import { debugLog } from '@rapid-cmi5/ui';
+import { CustomTheme } from '../styles/createPalette';
+import ErrorIcon from '@mui/icons-material/Error';
+import { createPortal } from 'react-dom';
+
+/**
+ * Context for Building CMI5 Course
+ * @see ICourseBuilderContext
+ * @return {Context} React Context
+ */
+export const AuManagerContext = createContext<AuContextProps>({
+  activeTab: 0,
+  progressPercent: 0,
+  viewedSlides: [],
+  scenario: undefined, //TODO scenario, //from redux, may be more up to date than course data
+  slides: [],
+  setActiveTab: (tab: number) => {
+    return;
+  },
+  setProgress: (makeProgress: boolean) => {
+    return;
+  },
+  slideData: 'Loading...',
+  submitScore: () => {
+    return;
+  },
+  getActivityCache: null,
+  setActivityCache: null,
+  isAuthenticated: false,
+  isTestMode: false,
+});
+
+function AuManager() {
+  const modalObj = useSelector(modal);
+  const auJson = useSelector(auJsonSel);
+  const activeTab = useSelector(activeTabSel);
+  const viewedSlides = useSelector(auViewedSlidesSel);
+  const isDisplayInitialized = useSelector(auDisplayInitializedSel);
+  const dispatch = useDispatch();
+
+  const isInitializedProgressData = useRef(false);
+  const [auManagerState, setAuManagerState] = useState(AuManagerState.waiting);
+  const [portalTarget, setPortalTarget] = useState<any>(null);
+  const [loadingMessage, setLoadingMessage] = useState('');
+  const [cmi5ReadyAttempts, setCmi5ReadyAttempts] = useState(0);
+
+  const {
+    isAuthenticated,
+    isTestMode,
+    initializeCmi5WithRange,
+    initializeSessionCmi5,
+    testCmi5,
+    isCmi5RangeConnectionComplete,
+    cmi5ErrorMessage,
+    isInitSessionCmi5Complete,
+  } = useCMI5Session();
+
+  const {
+    handleGetCTFProgress,
+    handleSetCTFProgress,
+    handleGetQuizProgress,
+    handleSetQuizProgress,
+    handleGetAutoGraderProgress,
+    handleSetSetAuoGraderProgress,
+  } = useActivitySession();
+
+  const { isOverridesLoaded, loadOverrides } = useOverrideConfigs();
+  const { isContentLoaded, contentErrorMessage, loadContent } = useAuContent();
+
+  /**
+   * 2.4.2 Page Titled (Level A): reflect the AU's own title in the tab title.
+   * Only runs once real content has loaded, so the "Loading..." placeholder
+   * (defaultCourseAuData) never leaks into the title. Falls back to auName
+   * since title is an optional field and may not be authored.
+   * A later org-configured theme.playerTitle (useOverrideConfig) intentionally
+   * overrides this — that's the customer's explicit branding choice.
+   */
+  useEffect(() => {
+    if (!isContentLoaded) return;
+    const displayTitle = auJson?.title || auJson?.auName;
+    if (displayTitle) {
+      document.title = `${displayTitle} | RapidCMI5`;
+    }
+  }, [isContentLoaded, auJson?.title, auJson?.auName]);
+
+  //#region Session Methods
+
+  const handleSetActivityCache = (
+    atype: RC5ActivityTypeEnum,
+    state?: ActivityCacheSetState,
+  ) => {
+    if (atype === RC5ActivityTypeEnum.quiz) {
+      handleSetQuizProgress(state as QuizState);
+    } else if (atype === RC5ActivityTypeEnum.scenario) {
+      handleSetSetAuoGraderProgress(state as string);
+    } else if (atype === RC5ActivityTypeEnum.ctf) {
+      handleSetCTFProgress(state as CTFState);
+    } else if (atype === RC5ActivityTypeEnum.codeRunner) {
+      logger.debug(
+        'Code Runner Cache has not been implemented yet',
+        undefined,
+        'auManager',
+      );
+    }
+  };
+
+  const handleGetActivityCache = async (
+    atype: RC5ActivityTypeEnum,
+    state?: ActivityCacheGetState,
+  ) => {
+    if (atype === RC5ActivityTypeEnum.quiz) {
+      return await handleGetQuizProgress(state as QuizState);
+    } else if (atype === RC5ActivityTypeEnum.scenario) {
+      return await handleGetAutoGraderProgress();
+    } else if (atype === RC5ActivityTypeEnum.ctf) {
+      return await handleGetCTFProgress(state as CTFStateKey);
+    } else if (atype === RC5ActivityTypeEnum.codeRunner) {
+      logger.debug(
+        'Code Runner Cache has not been implemented yet',
+        undefined,
+        'auManager',
+      );
+    }
+
+    return null;
+  };
+
+  const changeActiveTab = (selTab: number) => {
+    logger.debug('Set Active Tab', { selTab }, 'auManager');
+    dispatch(setActiveTab(selTab));
+  };
+
+  const setProgress = (makeProgress: boolean) => {
+    logger.debug(
+      'Context Set AU Progress',
+      { activeTab, makeProgress },
+      'auManager',
+    );
+    progressAU(activeTab, makeProgress, auJson, dispatch, store.getState);
+  };
+
+  const [slideData, setSlideData] = useState<string>('Loading...');
+
+  useEffect(() => {
+    if (auJson?.slides && auJson.slides.length > 0 && activeTab >= 0) {
+      // activeTab === auJson.slides.length is the synthetic exit slide — allow it through
+      if (activeTab === auJson.slides.length) {
+        setSlideData('');
+      } else if (activeTab > auJson.slides.length) {
+        debugLogError(`Slide Index ${activeTab} does not exist`);
+        dispatch(setActiveTab(0));
+        setSlideData('There was a problem loading this slide.');
+      } else {
+        setSlideData(auJson.slides[activeTab].content as string);
+      }
+    } else {
+      setSlideData('Loading...');
+    }
+  }, [activeTab, auJson?.slides, dispatch]);
+
+  const submitScore = (data: ActivityScore) => {
+    logger.debug('Context Submit Score', { data }, 'auManager');
+
+    logger.debug(
+      'AuManager.submitScore - slide identification',
+      {
+        activeTab,
+        auJsonExists: !!auJson,
+        auJsonSlidesLength: auJson?.slides?.length || 0,
+        auJsonSlides:
+          auJson?.slides?.map((slide, index) => ({
+            index,
+            filepath: slide.filepath,
+            title: slide.slideTitle,
+            content: slide.content
+              ? `${slide.content.substring(0, 100)}...`
+              : 'No content',
+          })) || [],
+        currentSlideData: auJson?.slides?.[activeTab] || null,
+      },
+      'auManager',
+    );
+
+    // Use the simplified handleActivityScoring function
+    // Pass slideIndex but let the function determine the correct slideGuid
+    handleActivityScoring(
+      {
+        activityData: data,
+        slideGuid: null, // Let function determine this
+        slideIndex: activeTab,
+      },
+      dispatch,
+      store.getState,
+    );
+  };
+
+  //#endregion
+
+  const getReadyDisplay = useCallback(() => {
+    if (auManagerState === AuManagerState.error) {
+      if (portalTarget) {
+        return createPortal(
+          <Stack direction="row" sx={{ padding: 1, width: '70%' }}>
+            <Alert severity="error">
+              <AlertTitle>{loadingMessage}</AlertTitle>
+            </Alert>
+            <Box sx={{ minWidth: '48px' }} />
+          </Stack>,
+          portalTarget, // Render the children into the portalTarget DOM node
+        );
+      } else {
+        return null;
+      }
+    }
+    if (auManagerState !== AuManagerState.ready) {
+      if (portalTarget) {
+        return createPortal(
+          <Stack direction="row" sx={{ padding: 1, width: '70%' }}>
+            <CircularProgress size="18px" />
+            <Typography color="text.primary" sx={{ marginLeft: '8px' }}>
+              {auManagerState + loadingMessage}
+            </Typography>
+            <Box sx={{ minWidth: '48px' }} />
+          </Stack>,
+          portalTarget, // Render the children into the portalTarget DOM node
+        );
+      } else {
+        return null;
+      }
+    }
+    return null;
+  }, [auManagerState, loadingMessage, portalTarget]);
+
+  const shouldRequireClassId = auJson.promptClassId
+    ? auJson.promptClassId
+    : false;
+
+  const auHasScenario =
+    auJson.rangeosScenarioUUID || auJson.rangeosScenarioName ? true : false;
+  const auHasTeamScenario = auJson.teamSSOEnabled ? true : false;
+
+  /**
+   * UE Manages Session State
+   */
+  useEffect(() => {
+    if (auManagerState !== AuManagerState.ready) {
+      logger.debug('[AU] state', { auManagerState }, 'auManager');
+    }
+
+    if (cmi5ErrorMessage) {
+      setLoadingMessage(cmi5ErrorMessage);
+      setAuManagerState(AuManagerState.error);
+    }
+    if (auManagerState === AuManagerState.waiting) {
+      loadContent();
+      setAuManagerState(AuManagerState.loadingContent);
+      return;
+    } else if (auManagerState === AuManagerState.loadingContent) {
+      if (isContentLoaded) {
+        logger.debug('[AU] content', { auJson }, 'auManager');
+
+        debugLog('auHasScenario ' + auHasScenario, auJson.rangeosScenarioName);
+        debugLog('auHasTeamScenario ', auJson.teamSSOEnabled);
+        //TODO
+        if (auHasScenario) {
+          config.CMI5_SSO_ENABLED = false;
+        } else if (auHasTeamScenario) {
+          config.CMI5_SSO_ENABLED = true;
+        } else {
+          config.CMI5_SSO_ENABLED = false;
+        }
+        //flag config file is finalized with all env variables needed
+
+        //if no sso is needed, set display ready
+        //otherwise token use effect will update it after sso authentication achieved
+        if (!config.CMI5_SSO_ENABLED) {
+          dispatch(setIsDisplayInitialized(true));
+          logger.debug('[AU] basic auth configured', undefined, 'auth');
+        } else {
+          logger.debug('[AU] waiting for SSO token', undefined, 'auth');
+        }
+
+        if (checkForDevMode()) {
+          logger.debug('[AU] test mode', undefined, 'auManager');
+
+          testCmi5(true);
+          logger.debug(
+            '[AU] state >',
+            { state: AuManagerState.ready },
+            'auManager',
+          );
+          if (auHasScenario && shouldRequireClassId) {
+            dispatch(setModal({ type: classPromptModalId, id: '', name: '' }));
+            logger.debug('[AuManager] prompt class id', undefined, 'auth');
+          }
+          setAuManagerState(AuManagerState.loadingOverrides);
+        } else {
+          initializeSessionCmi5();
+          setAuManagerState(AuManagerState.authenticating);
+        }
+      }
+      if (contentErrorMessage) {
+        setLoadingMessage(contentErrorMessage);
+        setAuManagerState(AuManagerState.error);
+      }
+      return;
+    } else if (auManagerState === AuManagerState.authenticating) {
+      if (isInitSessionCmi5Complete) {
+        setAuManagerState(AuManagerState.loadingOverrides);
+      }
+      return;
+    } else if (auManagerState === AuManagerState.loadingOverrides) {
+      if (isOverridesLoaded) {
+        // Refresh logging configuration after overrides are applied
+        refreshLoggingConfig();
+        setAuManagerState(AuManagerState.loadingScenario);
+      } else {
+        loadOverrides('./cfg.json');
+      }
+      return;
+    } else if (auManagerState === AuManagerState.loadingScenario) {
+      if (isTestMode) {
+        logger.debug(
+          '[AuManager] setIsConfigInitialized in testmode',
+          undefined,
+          'auth',
+        );
+        dispatch(setIsConfigInitialized(true));
+        setAuManagerState(AuManagerState.ready);
+        return;
+      }
+      if (isCmi5RangeConnectionComplete) {
+        // Add additional check for CMI5 readiness before calling resumeAU
+        if (cmi5Instance.xapi !== null && cmi5Instance.xapi !== undefined) {
+          logger.debug(
+            '[AU] CMI5 ready, calling resumeAU',
+            undefined,
+            'auManager',
+          );
+          resumeAU(dispatch, isInitializedProgressData, auJson); // gets cmi5 progress and sets active tab
+          setAuManagerState(AuManagerState.ready);
+
+          logger.debug(
+            '[AuManager] setIsConfigInitialized after loadingScenario success',
+            undefined,
+            'auth',
+          );
+          dispatch(setIsConfigInitialized(true));
+
+          // Reset CMI5 ready attempts on success
+          setCmi5ReadyAttempts(0);
+        } else {
+          // Wait a bit more for CMI5 to be ready, with retry limit
+          const maxCmi5ReadyAttempts = 50; // 5 seconds max (50 * 100ms)
+          if (cmi5ReadyAttempts < maxCmi5ReadyAttempts) {
+            logger.debug(
+              `[AU] CMI5 not ready yet, waiting... (attempt ${cmi5ReadyAttempts + 1}/${maxCmi5ReadyAttempts})`,
+              undefined,
+              'auManager',
+            );
+            setTimeout(() => {
+              setCmi5ReadyAttempts(cmi5ReadyAttempts + 1);
+            }, 100);
+          } else {
+            // CMI5 failed to become ready after maximum attempts
+            logger.error(
+              '[AU] CMI5 failed to become ready after maximum attempts, proceeding anyway',
+              undefined,
+              'auManager',
+            );
+            resumeAU(dispatch, isInitializedProgressData, auJson);
+            setAuManagerState(AuManagerState.ready);
+
+            logger.debug(
+              '[AuManager] setIsConfigInitialized after loadingScenario failed attempts',
+              undefined,
+              'auth',
+            );
+            dispatch(setIsConfigInitialized(true));
+
+            setCmi5ReadyAttempts(0);
+          }
+        }
+      } else {
+        initializeCmi5WithRange(shouldRequireClassId, auHasScenario);
+      }
+      return;
+    } else if (auManagerState === AuManagerState.error) {
+      return;
+    } else if (auManagerState === AuManagerState.ready) {
+      // respond to slide index changes
+    }
+
+    // After active tab or config (auJson) populates -----------------
+    logger.debug('[AU] activeSlide', { activeTab }, 'auManager');
+
+    if (isTestMode) {
+      return;
+    }
+
+    if (auJson?.slides) {
+      // Exit slide (synthetic tab beyond last real slide) should not trigger progress
+      if (activeTab === auJson.slides.length) return;
+
+      // this prevents completion of an activity slide until the desired activities are completed
+      let makeProgress = true;
+
+      if (auJson.slides[activeTab]) {
+        const content = auJson.slides[activeTab].content;
+        if (typeof content === 'string') {
+          if (
+            content.indexOf(':::quiz') >= 0 ||
+            content.indexOf(':::ctf') >= 0 ||
+            content.indexOf(':::codeRunner') >= 0 ||
+            content.indexOf(':::consoles') >= 0 ||
+            content.indexOf(':::scenario') >= 0
+          ) {
+            makeProgress = false;
+          }
+        }
+      }
+
+      if (
+        isContentLoaded &&
+        isOverridesLoaded &&
+        isAuthenticated &&
+        isCmi5RangeConnectionComplete
+      ) {
+        // Only call progressAU if:
+        // 1. We haven initialized progress data yet, OR
+        // 2. This is a fresh start (not resuming)
+        if (isInitializedProgressData.current) {
+          progressAU(activeTab, makeProgress, auJson, dispatch, store.getState);
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isContentLoaded,
+    isOverridesLoaded,
+    isAuthenticated,
+    isCmi5RangeConnectionComplete,
+    contentErrorMessage,
+    cmi5ErrorMessage,
+    auManagerState,
+    auJson,
+    activeTab, // Re-added to trigger progress updates on slide navigation
+    cmi5ReadyAttempts, // Added to trigger CMI5 readiness checks
+    isInitSessionCmi5Complete,
+  ]);
+
+  /**
+   * Clear class id prompt if feature is not supported for this au
+   */
+  useEffect(() => {
+    if (auJson) {
+      if (
+        !shouldRequireClassId &&
+        (modalObj.type === classPromptModalId ||
+          modalObj.type === classChangeModalId)
+      ) {
+        dispatch(setModal({ type: '', id: '', name: '' }));
+      }
+    }
+  }, [modalObj.type, auJson, shouldRequireClassId, dispatch]);
+
+  /**
+   * Find toolbar div to port errors into
+   * Retrieved with imageId
+   */
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const el = document.getElementById('error-portal');
+      if (el) {
+        setPortalTarget(el);
+        clearInterval(interval);
+      }
+    }, 50);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <AuManagerContext.Provider
+      value={{
+        activeTab: activeTab,
+        progressPercent: 0,
+        viewedSlides: [],
+        scenario: undefined, //TODO scenario, //from redux, may be more up to date than course data
+        slides: auJson.slides,
+        slideData,
+        setActiveTab: changeActiveTab,
+        setProgress: setProgress,
+        submitScore: submitScore,
+        setActivityCache: handleSetActivityCache,
+        getActivityCache: handleGetActivityCache,
+        isAuthenticated: isAuthenticated,
+        isTestMode: isTestMode,
+      }}
+    >
+      <>
+        {getReadyDisplay()}
+        {isDisplayInitialized && <MenuLayout />}
+        {!isDisplayInitialized && (
+          <Typography color="textPrimary">Authenticating...</Typography>
+        )}
+      </>
+    </AuManagerContext.Provider>
+  );
+}
+
+export default AuManager;

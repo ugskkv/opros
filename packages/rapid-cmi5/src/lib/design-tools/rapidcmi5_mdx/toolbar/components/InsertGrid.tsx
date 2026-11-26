@@ -1,0 +1,173 @@
+import {
+  ButtonWithTooltip,
+  rootEditor$,
+  $createDirectiveNode,
+  DirectiveNode,
+  syntaxExtensions$,
+} from '@mdxeditor/editor';
+
+import { $getSelection, $isRangeSelection } from 'lexical';
+import type { LexicalEditor } from 'lexical';
+
+import { useCellValue, useCellValues } from '@mdxeditor/gurx';
+
+import GridViewIcon from '@mui/icons-material/GridView';
+
+import { convertMarkdownToMdast } from '@rapid-cmi5/ui';
+
+import type { BlockContent } from 'mdast';
+import { ContainerDirective } from 'mdast-util-directive';
+import { ButtonMinorUi, DEFAULT_GRID } from '@rapid-cmi5/ui';
+
+/**
+ * Icons
+ */
+import AddIcon from '@mui/icons-material/Add';
+import { useTheme } from '@mui/material';
+import { MUIButtonWithTooltip } from './MUIButtonWithTooltip';
+import { useSelectionHelper } from '../../../../hooks/useSelectionHelper';
+
+/**
+ * Checks if the current selection is inside a grid container or grid cell.
+ * Used to prevent nested grids.
+ */
+const isInsideGrid = (editor: any): boolean => {
+  let result = false;
+
+  editor.getEditorState().read(() => {
+    const selection = $getSelection();
+    if (!$isRangeSelection(selection)) return;
+
+    let node = selection.anchor.getNode();
+
+    // Traverse up the tree to check for grid directives
+    while (node) {
+      const parent = node.getParent();
+      if (!parent) break;
+
+      // Check if parent is a DirectiveNode with grid-related name
+      if (parent.getType && parent.getType() === 'directive') {
+        const directiveNode = parent as unknown as DirectiveNode;
+        const mdastNode = directiveNode.getMdastNode();
+        if (
+          mdastNode &&
+          (mdastNode.name === 'gridContainer' || mdastNode.name === 'grid')
+        ) {
+          result = true;
+          return;
+        }
+      }
+
+      node = parent;
+    }
+  });
+
+  return result;
+};
+
+/**
+ * A toolbar button component that inserts a grid layout into the editor.
+ * @component
+ * @returns A button with a tooltip labeled "Insert Layout Grid" and a grid icon.
+ */
+export const InsertGrid = ({ isDrawer }: { isDrawer?: boolean }) => {
+  const editor = useCellValue(rootEditor$) as LexicalEditor | null;
+  const [syntaxExtensions] = useCellValues(syntaxExtensions$);
+  const theme = useTheme();
+  const selectionHelper = useSelectionHelper();
+  /**
+   * Inserts default Grid at the current selection.
+   * If selection is not collapsed or inside an existing grid, nothing is inserted.
+   */
+  const insertAtSelection = () => {
+    if (!editor) return;
+
+    // Prevent nested grids
+    if (isInsideGrid(editor)) {
+      console.warn('Cannot insert grid inside another grid');
+      return;
+    }
+
+    editor.update(() => {
+      let selection = $getSelection();
+      if (!$isRangeSelection(selection)) return;
+
+      if (!selection.isCollapsed()) {
+        return; // No applying grid to selection
+      }
+
+      selection = selectionHelper.getInsertSelection(selection);
+
+      // Create children grid cell nodes
+      const theChildMDast = convertMarkdownToMdast(
+        DEFAULT_GRID,
+        syntaxExtensions,
+      );
+
+      // Create grid container node with default style
+      const mdastGrid: ContainerDirective = {
+        type: 'containerDirective',
+        name: 'gridContainer',
+        attributes: {
+          style: 'margin: 4px;',
+        },
+        children: (theChildMDast?.children as BlockContent[]) || [],
+      };
+
+      const gridNode = $createDirectiveNode(mdastGrid) as DirectiveNode;
+      selection.insertNodes([gridNode]);
+      //REF these lines eat the cursor
+      // const insertedKey = gridNode.getKey();
+      // placeCaretInsideDirective(editor, insertedKey);
+    });
+  };
+
+  return (
+    <>
+      {isDrawer ? (
+        <ButtonMinorUi
+          title="Insert Layout Grid"
+          aria-label="insert-layout"
+          startIcon={
+            <>
+              <AddIcon
+                fontSize="large"
+                sx={{
+                  color: theme.palette.primary.main,
+                  fill: theme.palette.primary.main,
+                }}
+              />
+
+              <GridViewIcon
+                fontSize="small"
+                sx={{ fill: theme.palette.primary.main, marginRight: 1 }}
+              />
+            </>
+          }
+          sx={{
+            display: 'flex',
+            justifyContent: 'flex-start',
+            alignItems: 'center',
+            margin: 1,
+            padding: 1,
+          }}
+          onClick={() => {
+            insertAtSelection();
+          }}
+        >
+          Layout Grid
+        </ButtonMinorUi>
+      ) : (
+        <MUIButtonWithTooltip
+          title="Insert Layout Grid"
+          aria-label="insert-layout-grid"
+          onClick={() => {
+            insertAtSelection();
+          }}
+        >
+          <GridViewIcon fontSize="small" />
+        </MUIButtonWithTooltip>
+      )}
+    </>
+  );
+};

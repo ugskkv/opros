@@ -1,0 +1,56 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Electron Main",
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "timeout": 30000,
+      "sourceMaps": true,
+      "outFiles": ["${workspaceFolder}/dist/apps/rapid-cmi5-electron/**/*.js"],
+      "preLaunchTask": "nx: serve electron debug",
+      "restart": true,
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Launch rapid-cmi5-frontend",
+      "request": "launch",
+      "type": "chrome",
+      "url": "http://localhost:4200",
+      "userDataDir": true,
+      "webRoot": "${workspaceFolder}/apps/rapid-cmi5-electron-frontend",
+      "runtimeArgs": [
+        "--disable-web-security",
+        "--disable-site-isolation-trials"
+      ],
+      "sourceMapPathOverrides": {
+        "webpack:///./*": "${webRoot}/*",
+        "webpack:///*": "${webRoot}/*",
+        "webpack:///packages/*": "${webRoot}/packages/*",
+        "webpack:///apps/*": "${webRoot}/apps/*",
+        "webpack:///libs/*": "${webRoot}/libs/*",
+        "*/packages/*": "${webRoot}/packages/*",
+        "*/apps/*": "${webRoot}/apps/*",
+        "*/libs/*": "${webRoot}/libs/*"
+      }
+    },
+    {
+      "name": "Launch cc-cmi5-player debugger",
+      "request": "launch",
+      "type": "chrome",
+      "url": "http://localhost:4200",
+      "userDataDir": true,
+      "webRoot": "${workspaceFolder}/apps/cc-cmi5-player",
+      "sourceMapPathOverrides": {
+        "webpack:///./*": "${webRoot}/*",
+        "webpack://apps/*": "${webRoot}/apps/*",
+        "webpack:///src/*": "${workspaceFolder}/apps/cc-cmi5-player/src/*",
+        "webpack:///./src/*": "${workspaceFolder}/apps/cc-cmi5-player/src/*",
+        "webpack:///apps/libs/*": "${workspaceFolder}/libs/*", // Add this
+        "webpack://*/libs/*": "${workspaceFolder}/libs/*", // And this as a catch-all
+        "webpack://*/apps/libs/*": "${workspaceFolder}/libs/*" // And this
+      }
+    }
+  ]
+}

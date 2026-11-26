@@ -1,0 +1,366 @@
+import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+
+import {
+  Drawer,
+  IconButton,
+  Slider,
+  ToggleButton,
+  ToggleButtonGroup,
+  Stack,
+  Tooltip,
+  Typography,
+  alpha,
+  useTheme,
+  Alert,
+} from '@mui/material';
+
+/* MUI */
+import Grid from '@mui/material/Grid2';
+
+import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
+import { useCellValue, usePublisher } from '@mdxeditor/gurx';
+
+import { drawerMode$, DRAWER_TYPE, stylesShowSeq$ } from './drawers';
+
+import { useSelector } from 'react-redux';
+
+import CloseIcon from '@mui/icons-material/Close';
+import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
+import PaletteIcon from '@mui/icons-material/Palette';
+import PushPinIcon from '@mui/icons-material/PushPin';
+import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined';
+
+import { useDrawerAutoHide } from './useDrawerAutoHide';
+
+import {
+  BlockPaddingEnum,
+  ContentWidthEnum,
+  DefaultAlignmentEnum,
+} from '@rapid-cmi5/cmi5-build-common';
+import {
+  blockPaddingDescriptions,
+  contentWidthDescriptions,
+  defaultAlignmentLabels,
+} from '../../drawers/constants';
+import { RC5Context } from '../../contexts/RC5Context';
+import { courseDataCache } from '../../../../redux/courseBuilderReducer';
+import { drawerHeaderStyles, drawerHeaderVariant, drawerTitleStyles, drawerTitleVariant } from '@rapid-cmi5/ui';
+
+/**
+ * Apply styles globally
+ */
+export function LessonStyleDrawer() {
+  useLexicalComposerContext(); // Ensures we are inside a Lexical editor context
+  const drawerMode = useCellValue(drawerMode$);
+  const changeViewMode = usePublisher(drawerMode$);
+  const courseData = useSelector(courseDataCache);
+
+  const { changeCourseTheme } = useContext(RC5Context);
+  const theme = useTheme();
+  const courseTheme = courseData?.courseTheme;
+
+  const [contentWidth, setContentWidth] = useState<ContentWidthEnum>(
+    ContentWidthEnum.None,
+  );
+  const [blockPadding, setBlockPadding] = useState<BlockPaddingEnum>(
+    BlockPaddingEnum.None,
+  );
+  const [customPadding, setCustomPadding] = useState<number>(16);
+  const [defaultAlignment, setDefaultAlignment] =
+    useState<DefaultAlignmentEnum>(DefaultAlignmentEnum.Left);
+
+  const [defaultActivityAlignment, setDefaultActivityAlignment] =
+    useState<DefaultAlignmentEnum>(DefaultAlignmentEnum.Center);
+
+  const isOpen = useMemo(() => {
+    return drawerMode === DRAWER_TYPE.STYLES;
+  }, [drawerMode]);
+
+  const showSeq = useCellValue(stylesShowSeq$);
+
+  const handleClose = useCallback(() => {
+    changeViewMode(DRAWER_TYPE.NONE);
+  }, [changeViewMode]);
+
+  const {
+    autoHide,
+    toggleAutoHide,
+    handleMouseEnter,
+    handleMouseLeave,
+    effectiveOpen,
+    getDrawerSx,
+  } = useDrawerAutoHide('styles', isOpen, showSeq);
+
+  const handleSetContentWidth = useCallback(
+    (val: ContentWidthEnum) => {
+      setContentWidth(val);
+      changeCourseTheme({ ...courseTheme, contentWidth: val });
+    },
+    [courseTheme, changeCourseTheme],
+  );
+
+  const handleSetBlockPadding = useCallback(
+    (val: BlockPaddingEnum) => {
+      setBlockPadding(val);
+      changeCourseTheme({ ...courseTheme, blockPadding: val });
+    },
+    [courseTheme, changeCourseTheme],
+  );
+
+  const handleSetCustomPadding = useCallback(
+    (val: number) => {
+      setCustomPadding(val);
+      changeCourseTheme({ ...courseTheme, blockPaddingCustomValue: val });
+    },
+    [courseTheme, changeCourseTheme],
+  );
+
+  const handleSetDefaultAlignment = useCallback(
+    (val: DefaultAlignmentEnum) => {
+      setDefaultAlignment(val);
+      changeCourseTheme({ ...courseTheme, defaultAlignment: val });
+    },
+    [courseTheme, changeCourseTheme],
+  );
+
+  const handleSetDefaultActivityAlignment = useCallback(
+    (val: DefaultAlignmentEnum) => {
+      setDefaultActivityAlignment(val);
+      changeCourseTheme({ ...courseTheme, defaultActivityAlignment: val });
+    },
+    [courseTheme, changeCourseTheme],
+  );
+
+  useEffect(() => {
+    if (courseTheme) {
+      setContentWidth(courseTheme.contentWidth || ContentWidthEnum.None);
+      setBlockPadding(courseTheme.blockPadding || BlockPaddingEnum.None);
+      setCustomPadding(courseTheme.blockPaddingCustomValue ?? 16);
+      setDefaultAlignment(
+        courseTheme.defaultAlignment || DefaultAlignmentEnum.Left,
+      );
+      setDefaultActivityAlignment(
+        courseTheme.defaultActivityAlignment || DefaultAlignmentEnum.Center,
+      );
+    }
+  }, [courseTheme]);
+
+  return (
+    <Drawer
+      anchor="right"
+      open={effectiveOpen}
+      variant="persistent" // Stay open while user clicks elsewhere
+      onClose={handleClose}
+      sx={getDrawerSx({
+        position: 'absolute',
+        zIndex: 1400, // Higher than MUI modals (1300) and directive editors
+        pointerEvents: 'none', // Root div never captures clicks; Paper has its own pointer events
+        '& .MuiDrawer-paper': {
+          width: 360,
+          maxWidth: '90vw',
+          zIndex: 1400,
+          pointerEvents: 'auto',
+        },
+      })}
+      PaperProps={{
+        onMouseEnter: handleMouseEnter,
+        onMouseLeave: handleMouseLeave,
+        sx: { zIndex: 1400 },
+      }}
+    >
+      <Stack
+        id="lesson-styles"
+        direction="column"
+        sx={{ height: '100%', zIndex: 200 }}
+        spacing={0}
+      >
+        <Stack
+          direction="row"
+          sx={{
+            alignItems: 'center',
+            padding: 2,
+            background: alpha(theme.palette.primary.main, 0.15),
+            borderBottom: 1,
+            borderColor: 'divider',
+          }}
+        >
+          <PaletteIcon color="primary" />
+
+          <Typography variant={drawerHeaderVariant} sx={drawerHeaderStyles}>
+            Course Appearance
+          </Typography>
+          <Tooltip
+            title={
+              autoHide
+                ? 'Auto-hide on (click to pin)'
+                : 'Auto-hide off (click to enable)'
+            }
+          >
+            <IconButton
+              onClick={toggleAutoHide}
+              aria-label={autoHide ? 'Disable auto-hide' : 'Enable auto-hide'}
+              size="small"
+              sx={{ color: autoHide ? 'primary.main' : 'text.disabled' }}
+            >
+              {autoHide ? (
+                <PushPinOutlinedIcon fontSize="small" />
+              ) : (
+                <PushPinIcon fontSize="small" />
+              )}
+            </IconButton>
+          </Tooltip>
+          <IconButton
+            onClick={handleClose}
+            aria-label="Close Course Appearance"
+          >
+            <CloseIcon />
+          </IconButton>
+        </Stack>
+        <Alert severity="info" sx={{ margin: 2 }}>
+          Settings are applied to the entire course
+        </Alert>
+        <Grid container sx={{ margin: 2 }}>
+          {/* Content Width */}
+          <Grid size={11.5}>
+            <Typography variant={drawerTitleVariant}  sx={{ ...drawerTitleStyles, mb: 1 }}>
+              Content Width
+            </Typography>
+            <ToggleButtonGroup
+              value={contentWidth}
+              exclusive
+              onChange={(_, val) => {
+                if (val !== null) {
+                  handleSetContentWidth(val);
+                }
+              }}
+              size="small"
+              fullWidth
+            >
+              <ToggleButton value={ContentWidthEnum.None}>None</ToggleButton>
+              <ToggleButton value={ContentWidthEnum.Small}>S</ToggleButton>
+              <ToggleButton value={ContentWidthEnum.Medium}>M</ToggleButton>
+              <ToggleButton value={ContentWidthEnum.Large}>L</ToggleButton>
+            </ToggleButtonGroup>
+            <Typography variant="body2" sx={{ mt: 0.5 }}>
+              {contentWidthDescriptions.get(contentWidth)}
+            </Typography>
+          </Grid>
+
+          {/* Block Padding */}
+          <Grid size={11.5} sx={{ mt: 2.5 }}>
+            <Typography variant={drawerTitleVariant}  sx={{ ...drawerTitleStyles, mb: 1 }}>
+              Block Padding
+            </Typography>
+            <ToggleButtonGroup
+              value={blockPadding}
+              exclusive
+              onChange={(_, val) => {
+                if (val !== null) handleSetBlockPadding(val);
+              }}
+              size="small"
+              fullWidth
+            >
+              <ToggleButton value={BlockPaddingEnum.None}>None</ToggleButton>
+              <ToggleButton value={BlockPaddingEnum.Small}>S</ToggleButton>
+              <ToggleButton value={BlockPaddingEnum.Medium}>M</ToggleButton>
+              <ToggleButton value={BlockPaddingEnum.Large}>L</ToggleButton>
+              <ToggleButton
+                value={BlockPaddingEnum.Custom}
+                aria-label="Custom padding"
+              >
+                <MoreHorizIcon fontSize="small" />
+              </ToggleButton>
+            </ToggleButtonGroup>
+            <Typography variant="body2" sx={{ mt: 0.5 }}>
+              {blockPaddingDescriptions.get(blockPadding)}
+            </Typography>
+            {blockPadding === BlockPaddingEnum.Custom && (
+              <>
+                <Typography variant="body2" sx={{ mt: 1 }}>
+                  Top and Bottom
+                </Typography>
+                <Grid container alignItems="center" spacing={2}>
+                  <Grid size={9}>
+                    <Slider
+                      value={customPadding}
+                      onChange={(_, val) =>
+                        handleSetCustomPadding(val as number)
+                      }
+                      min={0}
+                      max={64}
+                      step={4}
+                    />
+                  </Grid>
+                  <Grid size={3}>
+                    <Typography variant="body2" textAlign="center">
+                      {customPadding}
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </>
+            )}
+          </Grid>
+
+          {/* Default Alignment */}
+          <Grid size={11.5} sx={{ mt: 2.5 }}>
+            <Typography variant={drawerTitleVariant}  sx={{ ...drawerTitleStyles, mb: 1 }}>
+              Text Alignment
+            </Typography>
+            <ToggleButtonGroup
+              value={defaultAlignment}
+              exclusive
+              onChange={(_, val) => {
+                handleSetDefaultAlignment(val as DefaultAlignmentEnum);
+              }}
+              size="small"
+              fullWidth
+            >
+              <ToggleButton value={DefaultAlignmentEnum.Left}>
+                Left
+              </ToggleButton>
+              <ToggleButton value={DefaultAlignmentEnum.Center}>
+                Center
+              </ToggleButton>
+              <ToggleButton value={DefaultAlignmentEnum.Right}>
+                Right
+              </ToggleButton>
+            </ToggleButtonGroup>
+            <Typography variant="body2" sx={{ mt: 0.5 }}>
+              {defaultAlignmentLabels.get(defaultAlignment) ?? 'Left'} align
+              text
+            </Typography>
+          </Grid>
+          {/* Default Activity Alignment */}
+          <Grid size={11.5} sx={{ mt: 2.5 }}>
+            <Typography variant={drawerTitleVariant}  sx={{ ...drawerTitleStyles, mb: 1 }}>
+              Activity Alignment
+            </Typography>
+            <ToggleButtonGroup
+              value={defaultActivityAlignment}
+              exclusive
+              onChange={(_, val) => {
+                handleSetDefaultActivityAlignment(val as DefaultAlignmentEnum);
+              }}
+              size="small"
+              fullWidth
+            >
+              <ToggleButton value={DefaultAlignmentEnum.Left}>
+                Left
+              </ToggleButton>
+              <ToggleButton value={DefaultAlignmentEnum.Center}>
+                Center
+              </ToggleButton>
+              <ToggleButton value={DefaultAlignmentEnum.Right}>
+                Right
+              </ToggleButton>
+            </ToggleButtonGroup>
+            <Typography variant="body2" sx={{ mt: 0.5 }}>
+              {defaultAlignmentLabels.get(defaultActivityAlignment) ?? 'Center'}{' '}
+              align activities
+            </Typography>
+          </Grid>
+        </Grid>
+      </Stack>
+    </Drawer>
+  );
+}

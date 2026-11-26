@@ -1,0 +1,207 @@
+## 0.26.0 (2026-11-18)
+
+This was a version bump only for rapid-cmi5-ui to align it with other projects, there were no code changes.
+
+## 0.25.1 (2026-11-05)
+
+This was a version bump only for rapid-cmi5-ui to align it with other projects, there were no code changes.
+
+## 0.25.0 (2026-11-04)
+
+### 🚀 Features
+
+- **rapid-cmi5:** add support for mermaid diagrams ([#252](https://github.com/ByLightSDC/rapidcmi5/pull/252))
+
+### ❤️ Thank You
+
+- mattkeele-bylight
+
+## 0.24.0 (2026-10-26)
+
+### 🩹 Fixes
+
+- **rapidcmi5-editor:** scenario selection improvement ([#248](https://github.com/ByLightSDC/rapidcmi5/pull/248))
+
+### ❤️ Thank You
+
+- mattkeele-bylight
+
+## 0.23.0 (2026-10-08)
+
+### 🚀 Features
+
+- **cmi5-builder:** quiz markers in mkdocs ([0bb4d449](https://github.com/ByLightSDC/rapidcmi5/commit/0bb4d449))
+
+### 🩹 Fixes
+
+- **cmi5-builder:** now excepts mkdocs.yml or mkdocs.yaml ([24cf687a](https://github.com/ByLightSDC/rapidcmi5/commit/24cf687a))
+- **rapid-cmi5-editor:** Fix e2e tests that were broken by recent moodle update ([#246](https://github.com/ByLightSDC/rapidcmi5/pull/246))
+
+### ❤️ Thank You
+
+- Aaron Crawford
+- mattkeele-bylight
+
+## 0.22.1 (2026-10-01)
+
+### 🩹 Fixes
+
+- **cc-cmi5-player:** fix low contrast on download file links ([bfd64170](https://github.com/ByLightSDC/rapidcmi5/commit/bfd64170))
+
+### ❤️ Thank You
+
+- Megan Bohland
+
+## 0.22.0 (2026-09-28)
+
+### 🚀 Features
+
+- add in activity and au completion notifications ([1cb08d01](https://github.com/ByLightSDC/rapidcmi5/commit/1cb08d01))
+- **cmi5-player:** added in CTF answer cache ([7eb58d3b](https://github.com/ByLightSDC/rapidcmi5/commit/7eb58d3b))
+
+### ❤️ Thank You
+
+- Aaron Crawford @aaiirr123
+
+## 0.21.0 (2026-09-17)
+
+### 🚀 Features
+
+- make tab panel keyboard-reachable and announce content changes ([92314501](https://github.com/ByLightSDC/rapidcmi5/commit/92314501))
+
+### 🩹 Fixes
+
+- **cc-cmi5-player:** restore image title tooltip fusion dropped by merge ([92cb590f](https://github.com/ByLightSDC/rapidcmi5/commit/92cb590f))
+- **rapid-cmi5-ui:** add Escape as a reliable close path for image labels ([146c93d2](https://github.com/ByLightSDC/rapidcmi5/commit/146c93d2))
+- correct ARIA issues on image label marker button ([5adbb98a](https://github.com/ByLightSDC/rapidcmi5/commit/5adbb98a))
+- add vertical spacing between file download links ([67da8c4e](https://github.com/ByLightSDC/rapidcmi5/commit/67da8c4e))
+- give file download links a single accessible control ([c2289fbe](https://github.com/ByLightSDC/rapidcmi5/commit/c2289fbe))
+
+### ❤️ Thank You
+
+- Megan Bohland
+
+## 0.20.0 (2026-09-04)
+
+### 🚀 Features
+
+- make tab panel keyboard-reachable and announce content changes
+
+### 🩹 Fixes
+
+- add vertical spacing between file download links
+- give file download links a single accessible control
+
+### ❤️ Thank You
+
+- Megan Bohland
+
+## 0.19.0 (2026-08-19)
+
+### 🚀 Features
+
+- **cmi5_player:** Filter anim logging to 'anim' namespace
+- **cmi5-editor:** Youtube directive controls visible in player
+- initial commit to prevent create/rename duplicate lessons (CCUI-2775)
+- make image marker button toggle content on/off
+- NVDA added lang text selection support (CCUI-3036)
+- Add generic text support to audio component (CCUI-3042)
+
+### 🩹 Fixes
+
+- announce read-only code blocks as "code block" to screen readers
+- stop NVDA announcing read-only code blocks as editable with autocomplete
+- announce transcript cue seeks to screen readers in audio player
+- announce transcript cue seeks to screen readers in audio player
+- **cmi5-player:** Anim Pause/Play NVDA and slide navigation support (CCUI-3028)
+- key step-heading focus effect on step, not derived title
+- announce image label toggle state to screen readers
+- move focus to step heading on step change for screen readers
+- link stepper buttons to their content panels for screen readers
+- align helper icons so centered / fix so no shifting up when validation errors are shown
+- fix stepper buttons announcing wrong step numbers to screen readers
+
+### ❤️ Thank You
+
+- Matt Keele
+- mattkeele-bylight
+- Megan Bohland
+
+## 0.18.1 (2026-07-01)
+
+This was a version bump only for rapid-cmi5-ui to align it with other projects, there were no code changes.
+
+## 0.18.0 (2026-06-26)
+
+### 🚀 Features
+
+- Added in React Query and unified electron and web app clients
+- fix for copy pasted blocks within anim blocks
+
+### 🩹 Fixes
+
+- anim text clarification (CCUI-2684)
+- honor lesson contentWidth for audio in player (CCUI-3005)
+- Fonts paths corrected and changed how default images operate #CCUI-2911
+
+### ❤️ Thank You
+
+- Aaron Crawford
+- mattkeele-bylight
+
+## 0.17.0 (2026-06-26)
+
+### 🚀 Features
+
+- Added in React Query and unified electron and web app clients
+- fix for copy pasted blocks within anim blocks
+
+### 🩹 Fixes
+
+- anim text clarification (CCUI-2684)
+- honor lesson contentWidth for audio in player (CCUI-3005)
+- Fonts paths corrected and changed how default images operate #CCUI-2911
+
+### ❤️ Thank You
+
+- Aaron Crawford
+- mattkeele-bylight
+
+## 0.16.0 (2026-05-28)
+
+### 🚀 Features
+
+- fix for copy pasted blocks within anim blocks ([#181](https://github.com/ByLightSDC/rapidcmi5/pull/181))
+
+### 🩹 Fixes
+
+- Fonts paths corrected and changed how default images operate #CCUI-2911 ([#178](https://github.com/ByLightSDC/rapidcmi5/pull/178))
+
+### ❤️ Thank You
+
+- Aaron Crawford @aaiirr123
+- mattkeele-bylight
+
+## 0.15.0 (2026-05-19)
+
+### 🩹 Fixes
+
+- Correct eslint paths and fix absolute imports ([#177](https://github.com/ByLightSDC/rapidcmi5/pull/177))
+
+### ❤️ Thank You
+
+- Aaron Crawford @aaiirr123
+
+## 0.14.0 (2026-05-11)
+
+### 🩹 Fixes
+
+- Fix auto save for forms ([#166](https://github.com/ByLightSDC/rapidcmi5/pull/166))
+
+### ❤️ Thank You
+
+- Aaron Crawford @aaiirr123
+
+## 0.13.7 (2026-05-10)
+
+This was a version bump only for rapid-cmi5-ui to align it with other projects, there were no code changes.

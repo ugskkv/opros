@@ -1,0 +1,281 @@
+import React, { useCallback, useEffect } from 'react';
+import {
+  Box,
+  Drawer,
+  IconButton,
+  Stack,
+  Tooltip,
+  Typography,
+  Alert,
+  Divider,
+  useTheme,
+  alpha,
+} from '@mui/material';
+
+import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
+import { useCellValue, usePublisher } from '@mdxeditor/gurx';
+import {
+  animationDrawerOpen$,
+  slideAnimations$,
+  selectedAnimation$,
+  toggleAnimationDrawer$,
+  moveAnimationUp$,
+  moveAnimationDown$,
+} from '../state/animationCells';
+import { AnimationTimeline } from './AnimationTimeline';
+import { AnimationPreview } from './AnimationPreview';
+import { WrapWithAnimDirective } from './WrapWithAnimDirective';
+import { useLexicalSelection } from '../hooks/useLexicalSelection';
+import { highlightAnimatedElement } from '../utils/updateAnimationIndicators';
+import { ButtonMinorUi, selectionInsideAnimDirective$ } from '@rapid-cmi5/ui';
+
+/** Icons */
+import CloseIcon from '@mui/icons-material/Close';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
+import MotionPhotosAutoIcon from '@mui/icons-material/MotionPhotosAuto';
+import PushPinIcon from '@mui/icons-material/PushPin';
+import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined';
+
+import { useDrawerAutoHide } from '../../../toolbar/components/useDrawerAutoHide';
+import { animationShowSeq$ } from '../../../toolbar/components/drawers';
+import { drawerHeaderStyles, drawerHeaderVariant } from '@rapid-cmi5/ui';
+
+/**
+ * Main animation drawer component
+ * Displays animation timeline and configuration
+ */
+export function AnimationDrawer() {
+  useLexicalComposerContext(); // Ensures we are inside a Lexical editor context
+  const isOpen = useCellValue(animationDrawerOpen$);
+  const animations = useCellValue(slideAnimations$);
+  const selectedAnimationId = useCellValue(selectedAnimation$);
+  const toggleDrawer = usePublisher(toggleAnimationDrawer$);
+  const moveUp = usePublisher(moveAnimationUp$);
+  const moveDown = usePublisher(moveAnimationDown$);
+  const theme = useTheme();
+
+  const showSeq = useCellValue(animationShowSeq$);
+
+  const {
+    autoHide,
+    toggleAutoHide,
+    handleMouseEnter,
+    handleMouseLeave,
+    effectiveOpen,
+    getDrawerSx,
+  } = useDrawerAutoHide('animation', isOpen, showSeq);
+
+  // Hook into Lexical selection
+  const { selectedInfo, isAnimatable, notAnimatableReason } =
+    useLexicalSelection();
+  const isAlreadyAnimated = useCellValue(selectionInsideAnimDirective$);
+
+  // Calculate move button states
+  const selectedAnimIndex = animations.findIndex(
+    (a) => a.id === selectedAnimationId,
+  );
+  const canMoveUp = selectedAnimationId && selectedAnimIndex > 0;
+  const canMoveDown =
+    selectedAnimationId &&
+    selectedAnimIndex >= 0 &&
+    selectedAnimIndex < animations.length - 1;
+
+  const handleClose = useCallback(() => {
+    toggleDrawer();
+  }, [toggleDrawer]);
+
+  // Keep the active animation badge in sync with the currently expanded item
+  useEffect(() => {
+    if (!isOpen) {
+      highlightAnimatedElement(null);
+      return;
+    }
+
+    const selectedAnim = animations.find((a) => a.id === selectedAnimationId);
+    // Prefer directiveId (stable) over targetNodeKey (ephemeral)
+    highlightAnimatedElement(
+      selectedAnim?.directiveId ?? selectedAnim?.targetNodeKey ?? null,
+    );
+  }, [isOpen, animations, selectedAnimationId]);
+
+  const handleMoveUp = useCallback(() => {
+    if (selectedAnimationId) {
+      moveUp(selectedAnimationId);
+    }
+  }, [moveUp, selectedAnimationId]);
+
+  const handleMoveDown = useCallback(() => {
+    if (selectedAnimationId) {
+      moveDown(selectedAnimationId);
+    }
+  }, [moveDown, selectedAnimationId]);
+
+  if (!isOpen) {
+    highlightAnimatedElement(null);
+  }
+
+  return (
+    <Drawer
+      anchor="right"
+      open={effectiveOpen}
+      variant="persistent" // Stay open while user clicks elsewhere
+      onClose={handleClose}
+      sx={getDrawerSx({
+        position: 'absolute',
+        zIndex: 1400, // Higher than MUI modals (1300) and directive editors
+        pointerEvents: 'none', // Root div never captures clicks; Paper has its own pointer events
+        '& .MuiDrawer-paper': { pointerEvents: 'auto' },
+      })}
+      PaperProps={{
+        onMouseEnter: handleMouseEnter,
+        onMouseLeave: handleMouseLeave,
+        sx: { width: 360, maxWidth: '90vw', zIndex: 1400 },
+      }}
+    >
+      <Stack id="animation-library" direction="column" sx={{ height: '100%' }}>
+        {/* Header */}
+        <Stack
+          direction="row"
+          sx={{
+            alignItems: 'center',
+            padding: 2,
+            background: alpha(theme.palette.primary.main, 0.15),
+            borderBottom: 1,
+            borderColor: 'divider',
+          }}
+        >
+          <MotionPhotosAutoIcon color="primary" />
+          <Typography variant={drawerHeaderVariant} sx={drawerHeaderStyles}>
+            Animation Library
+          </Typography>
+          <Tooltip
+            title={
+              autoHide
+                ? 'Auto-hide on (click to pin)'
+                : 'Auto-hide off (click to enable)'
+            }
+          >
+            <IconButton
+              onClick={toggleAutoHide}
+              aria-label={autoHide ? 'Disable auto-hide' : 'Enable auto-hide'}
+              size="small"
+              sx={{ color: autoHide ? 'primary.main' : 'text.disabled' }}
+            >
+              {autoHide ? (
+                <PushPinOutlinedIcon fontSize="small" />
+              ) : (
+                <PushPinIcon fontSize="small" />
+              )}
+            </IconButton>
+          </Tooltip>
+          <IconButton
+            onClick={handleClose}
+            aria-label="Close Animation Library"
+          >
+            <CloseIcon />
+          </IconButton>
+        </Stack>
+
+        {/* Selected Element Info */}
+        <Box sx={{ padding: 2, borderBottom: 1, borderColor: 'divider' }}>
+          {isAlreadyAnimated ? (
+            <Alert severity="info" sx={{ mb: 1 }}>
+              <Typography variant="body2">
+                Selected elements already animated
+              </Typography>
+            </Alert>
+          ) : selectedInfo && isAnimatable ? (
+            <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mb: 1 }}>
+              <Typography variant="body2">
+                Click [+ Add Animation] to animate these elements
+              </Typography>
+            </Alert>
+          ) : selectedInfo && !isAnimatable ? (
+            <Alert severity="warning" sx={{ mb: 1 }}>
+              <Typography variant="body2">
+                Cannot animate selected element(s)
+              </Typography>
+              <Typography variant="caption">
+                {notAnimatableReason ?? 'Select a different element'}
+              </Typography>
+            </Alert>
+          ) : (
+            <Alert severity="info" sx={{ mb: 1 }}>
+              <Typography variant="body2">
+                Select text or elements you want to animate
+              </Typography>
+              <Typography variant="caption">
+                Paragraphs, headings, images, videos, etc.
+              </Typography>
+            </Alert>
+          )}
+        </Box>
+
+        {/* Add / Wrap section */}
+        <Box sx={{ px: 2, py: 2 }}>
+          <WrapWithAnimDirective />
+        </Box>
+
+        <Divider />
+
+        {/* Move Up/Down Buttons */}
+        <Box sx={{ px: 2, py: 2 }}>
+          <Stack direction="row" spacing={1}>
+            <ButtonMinorUi
+              startIcon={<ArrowUpwardIcon />}
+              onClick={handleMoveUp}
+              fullWidth
+              disabled={!canMoveUp}
+            >
+              Move Up
+            </ButtonMinorUi>
+            <ButtonMinorUi
+              startIcon={<ArrowDownwardIcon />}
+              onClick={handleMoveDown}
+              fullWidth
+              disabled={!canMoveDown}
+            >
+              Move Down
+            </ButtonMinorUi>
+          </Stack>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ display: 'block', marginTop: 1 }}
+          >
+            {!selectedAnimationId
+              ? 'Select an animation in the timeline to reorder'
+              : canMoveUp || canMoveDown
+                ? 'Move the selected animation up or down'
+                : 'Cannot move - animation is at the edge'}
+          </Typography>
+        </Box>
+
+        {/* Timeline List */}
+        <Box sx={{ flex: 1, overflowY: 'auto' }}>
+          <AnimationTimeline animations={animations} />
+        </Box>
+
+        {/* Preview Controls */}
+        <AnimationPreview />
+
+        {/* Footer Info */}
+        <Box
+          sx={{
+            padding: 2,
+            borderTop: 1,
+            borderColor: 'divider',
+            backgroundColor: 'background.default',
+          }}
+        >
+          <Typography variant="caption" color="text.secondary">
+            {animations.length} animation{animations.length !== 1 ? 's' : ''} in
+            timeline
+          </Typography>
+        </Box>
+      </Stack>
+    </Drawer>
+  );
+}

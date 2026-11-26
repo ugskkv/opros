@@ -1,0 +1,596 @@
+import {
+  DirectiveEditorProps,
+  insertMarkdown$,
+  NestedLexicalEditor,
+  useCellValues,
+  usePublisher,
+} from '@mdxeditor/editor';
+import * as Mdast from 'mdast';
+
+import { ContainerDirective } from 'mdast-util-directive';
+import {
+  CSSProperties,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { $getRoot, $isElementNode } from 'lexical';
+
+import { convertMdastToMarkdown } from '../../util/conversion';
+import { editorInPlayback$ } from '../../state/vars';
+import ModalDialog from '../../../../modals/ModalDialog';
+import { parseStyleString } from '../../../markdown/MarkDownParser';
+
+import {
+  Box,
+  IconButton,
+  Paper,
+  SxProps,
+  Tooltip,
+  Typography,
+  useTheme,
+} from '@mui/material';
+import Grid from '@mui/material/Grid2';
+
+import DeleteIconButton from '../../components/DeleteIconButton';
+import EditIcon from '@mui/icons-material/Edit';
+import PaletteIcon from '@mui/icons-material/Palette';
+import InsertLineReturnButton from '../../components/InsertLineReturnButton';
+
+import {
+  GridCellDirectiveNode,
+  GridContainerDirectiveNode,
+  GridPreset,
+} from './types';
+import { createGridCell, findMatchingPreset, GRID_PRESETS } from './constants';
+import { GridContextProvider } from './GridContext';
+import {
+  CoursePresentationContext,
+  useCoursePresentation,
+} from '../../contexts/PresentationContext';
+import {
+  resolveLessonThemeCSS,
+  resolveBlockMaxWidth,
+} from '../../../../styles/lessonThemeStyles';
+import { useGutterRight } from '../shared/useGutterRight';
+import { BlockAppearanceForm } from '../shared/BlockAppearanceForm';
+import { ContentWidthEnum } from '@rapid-cmi5/cmi5-build-common';
+import { ColorSelectionPopover } from '../../../../colors/ColorSelectionPopover';
+import { SHAPE_PRESET_COLORS } from '../../constants/colors';
+import { BackgroundColorTrigger, useBackgroundColors } from '@rapid-cmi5/ui';
+
+/**
+ * Grid Container Editor for grid layout directive.
+ * Renders a grid container with settings modal for layout preset selection.
+ * Supports backgroundColor band (box-shadow/clip-path) and gutter context buttons.
+ */
+export const GridContainerEditor: React.FC<
+  DirectiveEditorProps<GridContainerDirectiveNode>
+> = ({ lexicalNode, mdastNode, parentEditor }) => {
+  const delay = (ms: number) => new Promise((res) => setTimeout(res, ms));
+
+  const muiTheme = useTheme();
+  const { rc5Theme } = useCoursePresentation();
+  const resolvedThemeCSS = resolveLessonThemeCSS(rc5Theme);
+  const blockPadding = resolvedThemeCSS
+    ? (resolvedThemeCSS.blockPadding ?? '0px')
+    : '32px';
+  const [contentWidth, setContentWidth] = useState<
+    ContentWidthEnum | undefined
+  >(mdastNode?.attributes?.contentWidth);
+  const [blockAppearanceOpen, setBlockAppearanceOpen] = useState(false);
+  const blockMaxWidth = resolveBlockMaxWidth(contentWidth);
+  const { containerRef, menuRight } = useGutterRight(
+    resolvedThemeCSS,
+    blockMaxWidth,
+  );
+
+  const [sxProps, setSxProps] = useState<SxProps>({});
+  const [formData, setFormData] = useState<Array<GridCellDirectiveNode>>(
+    structuredClone(mdastNode.children),
+  );
+  const insertMarkdown = usePublisher(insertMarkdown$);
+  const [isConfiguring, setIsConfiguring] = useState(false);
+  const [isPlayback] = useCellValues(editorInPlayback$);
+
+  const {
+    backgroundColor,
+    colorPickerAnchor,
+    openPicker,
+    pendingColor,
+    pendingColorRef,
+    setBackgroundColor,
+    setColorPickerAnchor,
+    setOverrideColor,
+    setPendingColorAndRef,
+  } = useBackgroundColors(mdastNode?.attributes?.['backgroundColor'] ?? '');
+
+  const skipNextCloseRebuildRef = useRef(false);
+
+  /**
+   * Determine the current preset based on cell count
+   */
+  const currentPreset = useMemo(() => {
+    return findMatchingPreset(formData.length) || GRID_PRESETS[0];
+  }, [formData.length]);
+
+  const [selectedPreset, setSelectedPreset] =
+    useState<GridPreset>(currentPreset);
+
+  /**
+   * Migrates content when changing column count.
+   * When reducing: merges content from removed columns into the last kept column.
+   * When expanding: adds new empty cells.
+   */
+  const migrateContent = useCallback(
+    (
+      currentCells: GridCellDirectiveNode[],
+      newPreset: GridPreset,
+    ): GridCellDirectiveNode[] => {
+      const currentCount = currentCells.length;
+      const newCount = newPreset.columns;
+
+      if (newCount >= currentCount) {
+        // Expanding or same: keep existing cells and add empty cells if needed
+        const result: GridCellDirectiveNode[] = [...currentCells];
+        for (let i = currentCount; i < newCount; i++) {
+          result.push(createGridCell());
+        }
+        return result;
+      }
+
+      // Reducing columns: merge content from removed columns into the last kept column
+      const keptCells = currentCells.slice(0, newCount);
+      const removedCells = currentCells.slice(newCount);
+
+      // Merge all removed cell children into the last kept cell
+      const lastKeptIndex = newCount - 1;
+      const lastKeptCell = keptCells[lastKeptIndex];
+
+      const mergedChildren = [
+        ...lastKeptCell.children,
+        // Add a visual separator (thematic break) between merged content
+        { type: 'thematicBreak' as const },
+        // Flatten all removed cells' children
+        ...removedCells.flatMap((cell) => cell.children),
+      ];
+
+      const result = keptCells.map((cell, index) => ({
+        ...cell,
+        children: index === lastKeptIndex ? mergedChildren : cell.children,
+      }));
+
+      return result as GridCellDirectiveNode[];
+    },
+    [],
+  );
+
+  /**
+   * Core rebuild: inserts a new gridContainer node then removes old node.
+   * Used by both handleSubmit (layout changes) and color picker.
+   */
+  const rebuildNode = useCallback(
+    async (
+      cells: GridCellDirectiveNode[],
+      bgColor: string,
+      blockContentWidth?: ContentWidthEnum,
+    ) => {
+      if (!parentEditor) return;
+
+      parentEditor.update(() => {
+        const nextSibling = lexicalNode.getNextSibling();
+        if (nextSibling) {
+          nextSibling.selectStart();
+        } else {
+          const root = $getRoot();
+          const lastChild = root.getChildren().at(-1);
+          if (lastChild) {
+            if ($isElementNode(lastChild)) {
+              const lastText = lastChild.getLastDescendant();
+              if (lastText) {
+                lastText.selectEnd();
+              } else {
+                lastChild.selectEnd();
+              }
+            } else {
+              lastChild.selectEnd();
+            }
+          }
+        }
+      });
+      await delay(50);
+
+      parentEditor.update(() => {
+        const attributes: Record<string, string> = {};
+        if (mdastNode.attributes?.style)
+          attributes['style'] = mdastNode.attributes.style;
+        if (bgColor) attributes['backgroundColor'] = bgColor;
+        if (blockContentWidth) attributes['contentWidth'] = blockContentWidth;
+
+        const mdast: ContainerDirective = {
+          type: 'containerDirective',
+          name: 'gridContainer',
+          attributes,
+          children: cells,
+        };
+
+        insertMarkdown(convertMdastToMarkdown(mdast as Mdast.RootContent));
+      });
+      await delay(50);
+
+      parentEditor.update(() => {
+        lexicalNode.remove();
+      });
+    },
+    [insertMarkdown, lexicalNode, mdastNode.attributes, parentEditor],
+  );
+
+  /**
+   * Reverts changes and closes modal
+   */
+  const handleCancel = () => {
+    setSelectedPreset(currentPreset);
+    setIsConfiguring(false);
+  };
+
+  /**
+   * Saves changes by inserting new node and removing original.
+   */
+  const handleSubmit = useCallback(async () => {
+    setIsConfiguring(false);
+    const newCells = migrateContent(formData, selectedPreset);
+    await rebuildNode(newCells, backgroundColor, contentWidth);
+  }, [
+    rebuildNode,
+    migrateContent,
+    formData,
+    selectedPreset,
+    backgroundColor,
+    contentWidth,
+  ]);
+
+  /**
+   * Clears the background color
+   */
+  const handleClearColor = useCallback(() => {
+    setColorPickerAnchor(null);
+    pendingColorRef.current = '';
+    skipNextCloseRebuildRef.current = true;
+    setOverrideColor('');
+    parentEditor.update(
+      () => {
+        const attrs = { ...mdastNode.attributes };
+        delete attrs.backgroundColor;
+        lexicalNode.setMdastNode({ ...mdastNode, attributes: attrs });
+      },
+      { discrete: true },
+    );
+  }, [lexicalNode, mdastNode, parentEditor]);
+
+  /**
+   * Opens the settings modal
+   */
+  const handleConfigure = useCallback(() => {
+    setIsConfiguring(!isConfiguring);
+  }, [isConfiguring]);
+
+  /**
+   * Sync form data, styles, and backgroundColor when mdastNode changes
+   */
+  useEffect(() => {
+    setFormData(mdastNode.children);
+
+    if (mdastNode.attributes?.style) {
+      try {
+        const theSx = parseStyleString(mdastNode.attributes.style);
+        setSxProps(theSx);
+      } catch (e) {
+        // no styles applied
+      }
+    }
+
+    const bgColor = mdastNode?.attributes?.backgroundColor ?? '';
+    setOverrideColor(bgColor);
+    setContentWidth(mdastNode?.attributes?.contentWidth);
+  }, [mdastNode]);
+
+  /**
+   * Sync selected preset when form data changes
+   */
+  useEffect(() => {
+    const matchingPreset = findMatchingPreset(formData.length);
+    if (matchingPreset) {
+      setSelectedPreset(matchingPreset);
+    }
+  }, [formData.length]);
+
+  // Outer box: full-width background color band when backgroundColor is set.
+  const outerSx: SxProps = backgroundColor
+    ? {
+        boxShadow: `0 0 0 100vmax ${backgroundColor}`,
+        clipPath: `inset(0 -100vmax 0)`,
+        backgroundColor,
+        paddingTop: blockPadding,
+        paddingBottom: blockPadding,
+      }
+    : {};
+
+  return (
+    <>
+      <Box
+        {...(backgroundColor ? { 'data-bgcolor': 'true' } : {})}
+        {...(contentWidth !== undefined
+          ? { 'data-block-override': 'true' }
+          : {})}
+        {...(contentWidth !== undefined
+          ? {
+              style: {
+                '--block-max-width': blockMaxWidth ?? 'none',
+              } as CSSProperties,
+            }
+          : {})}
+        sx={{
+          position: 'relative',
+          padding: 0,
+          border: isPlayback ? '1px' : '1px dashed',
+          borderColor: 'divider',
+          borderRadius: 1,
+          ...outerSx,
+          ...sxProps,
+          margin: 0,
+        }}
+        role="grid"
+        aria-label="Grid layout container"
+      >
+        {/* Inner content box */}
+        <Box
+          sx={{
+            width: '100%',
+            padding: 1,
+            border: isPlayback ? '1px' : '1px dashed',
+            borderColor: 'divider',
+            borderRadius: 1,
+            backgroundColor: (theme) => theme.palette.background.paper,
+            ...(blockMaxWidth
+              ? {
+                  maxWidth: blockMaxWidth,
+                  marginLeft: 'auto',
+                  marginRight: 'auto',
+                }
+              : {}),
+          }}
+        >
+          {/* Grid layout using CSS Grid - equal-width columns based on cell count */}
+          <GridContextProvider columnCount={mdastNode.children.length}>
+            <Box
+              sx={{
+                // Target the NestedLexicalEditor's wrapper div to apply grid layout
+                '& > [data-lexical-editor="true"]': {
+                  display: 'grid',
+                  gridTemplateColumns: `repeat(${mdastNode.children.length}, 1fr)`,
+                  gap: 2,
+                },
+              }}
+            >
+              <NestedLexicalEditor<ContainerDirective>
+                block={true}
+                getContent={(node) => node.children}
+                getUpdatedMdastNode={(node, children: any) => ({
+                  ...node,
+                  children,
+                })}
+                contentEditableProps={{ 'aria-label': 'Grid layout sections' }}
+              />
+            </Box>
+          </GridContextProvider>
+        </Box>
+
+        {/* Gutter buttons — absolutely positioned outside decorator at S/M, inside at L/None */}
+        {!isPlayback && (
+          <Box
+            sx={{
+              backgroundColor:
+                muiTheme.palette.mode === 'dark' ? '#282b30e6' : '#EEEEEEe6',
+              position: 'absolute',
+              display: 'flex',
+              top: backgroundColor ? blockPadding : 0,
+              right: menuRight,
+            }}
+          >
+            <Tooltip title="Edit Grid Layout">
+              <IconButton onClick={handleConfigure}>
+                <EditIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Block Appearance">
+              <IconButton
+                onClick={() => setBlockAppearanceOpen(true)}
+                size="small"
+              >
+                <PaletteIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <BackgroundColorTrigger
+              currentColor={
+                backgroundColor ? { color: pendingColor } : undefined
+              }
+              onTrigger={openPicker}
+            />
+            <InsertLineReturnButton
+              parentEditor={parentEditor}
+              lexicalNode={lexicalNode}
+            />
+            <DeleteIconButton
+              onDelete={() => {
+                parentEditor.update(() => {
+                  if (lexicalNode.getPreviousSibling()) {
+                    lexicalNode.selectPrevious();
+                  } else {
+                    lexicalNode.selectNext();
+                  }
+                  lexicalNode.remove();
+                });
+              }}
+            />
+          </Box>
+        )}
+      </Box>
+
+      {/* Background Color Popover */}
+      <ColorSelectionPopover
+        anchorEl={colorPickerAnchor}
+        onClose={() => {
+          setColorPickerAnchor(null);
+          if (skipNextCloseRebuildRef.current) {
+            skipNextCloseRebuildRef.current = false;
+            return;
+          }
+          const latest = pendingColorRef.current;
+          if (latest !== backgroundColor) {
+            setBackgroundColor(latest);
+            parentEditor.update(
+              () => {
+                const attrs = { ...mdastNode.attributes };
+                if (latest) {
+                  attrs.backgroundColor = latest;
+                } else {
+                  delete attrs.backgroundColor;
+                }
+                lexicalNode.setMdastNode({ ...mdastNode, attributes: attrs });
+              },
+              { discrete: true },
+            );
+          }
+        }}
+        lastColor={pendingColor}
+        palette={SHAPE_PRESET_COLORS}
+        onPickColor={(color) => {
+          setPendingColorAndRef(color);
+        }}
+        onClear={handleClearColor}
+        noneLabel="No background"
+      />
+
+      <BlockAppearanceForm
+        open={blockAppearanceOpen}
+        currentContentWidth={contentWidth}
+        onClose={() => setBlockAppearanceOpen(false)}
+        onSave={(newContentWidth) => {
+          setContentWidth(newContentWidth);
+          parentEditor.update(
+            () => {
+              const attrs = { ...mdastNode.attributes } as Record<
+                string,
+                string
+              >;
+              if (newContentWidth) {
+                attrs['contentWidth'] = newContentWidth;
+              } else {
+                delete attrs['contentWidth'];
+              }
+              lexicalNode.setMdastNode({ ...mdastNode, attributes: attrs });
+            },
+            { discrete: true },
+          );
+        }}
+      />
+
+      {isConfiguring && (
+        <ModalDialog
+          maxWidth="sm"
+          title="Grid Layout Settings"
+          buttons={['Cancel', 'Apply']}
+          dialogProps={{
+            open: true,
+          }}
+          handleAction={(index: number) => {
+            if (index === 0) {
+              handleCancel();
+            } else {
+              handleSubmit();
+            }
+          }}
+        >
+          <Paper variant="outlined" sx={{ p: 2 }}>
+            <Typography variant="subtitle1" gutterBottom>
+              Select Layout
+            </Typography>
+            <Grid container spacing={2}>
+              {GRID_PRESETS.map((preset) => (
+                <Grid size={6} key={preset.id}>
+                  <Paper
+                    variant={
+                      selectedPreset.id === preset.id ? 'elevation' : 'outlined'
+                    }
+                    elevation={selectedPreset.id === preset.id ? 4 : 0}
+                    sx={{
+                      p: 1.5,
+                      cursor: 'pointer',
+                      border:
+                        selectedPreset.id === preset.id
+                          ? '2px solid'
+                          : '1px solid',
+                      borderColor:
+                        selectedPreset.id === preset.id
+                          ? 'primary.main'
+                          : 'divider',
+                      '&:hover': {
+                        borderColor: 'primary.main',
+                      },
+                    }}
+                    onClick={() => setSelectedPreset(preset)}
+                  >
+                    <Typography
+                      variant="caption"
+                      align="center"
+                      display="block"
+                      sx={{ mb: 1, fontWeight: 'medium' }}
+                    >
+                      {preset.name}
+                    </Typography>
+                    {/* Visual preview: render equal-width mini grid boxes */}
+                    <Box sx={{ display: 'flex', gap: 0.5 }}>
+                      {Array.from({ length: preset.columns }).map((_, idx) => (
+                        <Box
+                          key={idx}
+                          sx={{
+                            flex: 1,
+                            height: 32,
+                            backgroundColor:
+                              selectedPreset.id === preset.id
+                                ? 'primary.light'
+                                : 'action.selected',
+                            border: '1px solid',
+                            borderColor:
+                              selectedPreset.id === preset.id
+                                ? 'primary.main'
+                                : 'divider',
+                            borderRadius: 0.5,
+                          }}
+                        />
+                      ))}
+                    </Box>
+                  </Paper>
+                </Grid>
+              ))}
+            </Grid>
+            {selectedPreset.columns < formData.length && (
+              <Typography
+                variant="caption"
+                color="warning.main"
+                sx={{ mt: 2, display: 'block' }}
+              >
+                Content from columns {selectedPreset.columns + 1}-
+                {formData.length} will be merged into column{' '}
+                {selectedPreset.columns}.
+              </Typography>
+            )}
+          </Paper>
+        </ModalDialog>
+      )}
+    </>
+  );
+};

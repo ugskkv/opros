@@ -1,0 +1,197 @@
+import {
+  FolderStruct,
+  Credentials,
+  GitUserConfig,
+  SSOConfig,
+  TokenResponse,
+  CertInfo,
+  DirMeta,
+} from '@rapid-cmi5/cmi5-build-common';
+import { ModifiedFile } from './design-tools/course-builder/GitViewer/Components/GitActions/GitFileStatus';
+import { DirEntry } from './design-tools/course-builder/GitViewer/utils/ElectronFsApi';
+import { ReadCommitResult, StatusRow } from 'isomorphic-git';
+
+export interface ipc {
+  cmi5Build: (
+    projectPath: string,
+    courseFolder: string,
+    projectName: string,
+  ) => Promise<string>;
+}
+
+export interface UserSettingsApi {
+  setSSOConfig: (data: SSOConfig) => Promise<void>;
+  getSSOConfig: () => Promise<SSOConfig>;
+  setSSOCredentials: (creds: Credentials) => void;
+  loginSSO: (refresh?: boolean) => Promise<TokenResponse>;
+  logoutSSO: () => Promise<void>;
+  getGitCredentials: () => Promise<Credentials>;
+  setGitCredentials: (creds: Credentials) => void;
+  getGitUserConfig: () => Promise<GitUserConfig>;
+  setGitUserConfig: (config: GitUserConfig) => void;
+  clearGitCredentials: () => void;
+  listCerts: () => Promise<CertInfo[]>;
+  addCert: (filename: string, contents: string) => Promise<CertInfo>;
+  removeCert: (id: string) => Promise<void>;
+}
+
+export interface PtyStartOptions {
+  cwd?: string;
+  args?: string[];
+  command?: string;
+  cols?: number;
+  rows?: number;
+}
+
+export interface PtyDataPayload {
+  sessionId: string;
+  data: string;
+  stream: 'stdout' | 'stderr';
+}
+
+export interface PtyExitPayload {
+  sessionId: string;
+  code: number | null;
+  signal: string | null;
+}
+
+export interface PtyErrorPayload {
+  sessionId: string;
+  message: string;
+}
+
+export interface PtyApi {
+  start: (opts?: PtyStartOptions) => Promise<{ sessionId: string }>;
+  input: (sessionId: string, data: string) => Promise<void>;
+  resize: (sessionId: string, cols: number, rows: number) => Promise<void>;
+  stop: (sessionId: string) => Promise<void>;
+  onData: (handler: (payload: PtyDataPayload) => void) => () => void;
+  onExit: (handler: (payload: PtyExitPayload) => void) => () => void;
+  onError: (handler: (payload: PtyErrorPayload) => void) => () => void;
+}
+
+export interface fsApi {
+  writeFile: (
+    path: string,
+    data: string | ArrayBuffer | Uint8Array | Blob,
+  ) => Promise<void>;
+  readFile: (path: string) => Promise<Uint8Array>;
+  getCurrentBranch: (path: string) => Promise<string | void>;
+  gitCheckout: (path: string, branch: string) => Promise<void>;
+  gitAdd: (path: string, filePath: string) => Promise<void>;
+  gitRemove: (path: string, filePath: string) => Promise<void>;
+  gitAddRemote: (path: string, remoteUrl: string) => Promise<void>;
+  getGitConfig: (path: string, configPath: string) => Promise<any>;
+  setGitConfig: (
+    path: string,
+    configPath: string,
+    value: string,
+  ) => Promise<void>;
+
+  gitWriteRef: (
+    path: string,
+    branch: string,
+    commitHash: string,
+  ) => Promise<void>;
+
+  getAllGitBranches: (path: string) => Promise<string[]>;
+  stat: (path: string) => Promise<{
+    isSymbolicLink: boolean;
+    size: number;
+    mtimeMs: number;
+    isFile: boolean;
+    isDirectory: boolean;
+    path: string;
+    ctimeMs: number;
+    mode: number;
+  }>;
+  exists: (path: string) => Promise<boolean>;
+  copyFile: (src: string, dest: string) => Promise<void>;
+  rm: (path: string, recursive?: boolean) => Promise<void>;
+  rename: (oldpath: string, newpath: string) => Promise<void>;
+  mkdir: (path: string, recursive?: boolean) => Promise<void>;
+  readdir: (path: string) => Promise<DirEntry[]>;
+  getStatus: (path: string) => Promise<StatusRow[]>;
+  getStashStatus: (path: string) => Promise<ModifiedFile[]>;
+  gitInitRepo: (dir: string, defaultBranch: string) => Promise<void>;
+  gitLog: (dir: string) => Promise<ReadCommitResult[]>;
+  getFolderStructure: (
+    dir: string,
+    repoPath: string,
+    getContents: boolean,
+  ) => Promise<FolderStruct[]>;
+  gitStash: (
+    dir: string,
+    op: 'list' | 'pop' | 'push',
+  ) => Promise<string | void>;
+  gitCommit: (
+    dir: string,
+    message: string,
+    committerName: string,
+    committerEmail: string,
+  ) => Promise<void>;
+  gitResetIndex: (dir: string, relFilePath: string) => Promise<void>;
+  gitResolveFile: (
+    dir: string,
+    relFilePath: string,
+  ) => Promise<
+    | 'ignored'
+    | 'unmodified'
+    | '*modified'
+    | '*deleted'
+    | '*added'
+    | 'absent'
+    | 'modified'
+    | 'deleted'
+    | 'added'
+    | '*unmodified'
+    | '*absent'
+    | '*undeleted'
+    | '*undeletemodified'
+  >;
+
+  listRepoRemotes: (dir: string) => Promise<
+    Array<{
+      remote: string;
+      url: string;
+    }>
+  >;
+  gitResolveRef: (dir: string, branch: string) => Promise<string>;
+  revertFileToHEAD: (dir: string, filePath: string) => Promise<string>;
+  cloneRepo: (
+    dir: string,
+    url: string,
+    branch: string,
+    shallowClone: boolean,
+    username: string,
+    password: string,
+  ) => Promise<void>;
+
+  pullRepo: (
+    dir: string,
+    branch: string,
+    username: string,
+    password: string,
+  ) => Promise<void>;
+
+  pushRepo: (dir: string, username: string, password: string) => Promise<void>;
+  chooseProject: () => Promise<string>;
+  getRecentProjects: () => Promise<DirMeta[]>;
+  removeRecentProject: (id: string) => Promise<void>;
+  addRecentProject: (id: string) => Promise<void>;
+  readPlayerConfig: () => Promise<any>;
+  writePlayerConfig: (content: string) => void;
+}
+
+declare global {
+  interface Window {
+    ipc: ipc;
+    fsApi: fsApi;
+    userSettingsApi: UserSettingsApi;
+    claudeApi: PtyApi;
+    codexApi: PtyApi;
+    terminalApi: PtyApi;
+    electronEvents: any;
+    electronAPI: any;
+  }
+}

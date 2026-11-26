@@ -1,0 +1,445 @@
+import {
+  DirectiveEditorProps,
+  NestedLexicalEditor,
+  readOnly$,
+  syntaxExtensions$,
+  useCellValues,
+} from '@mdxeditor/editor';
+import type { ContainerDirective } from 'mdast-util-directive';
+
+import { Paragraph } from 'mdast';
+import { toMarkdown } from 'mdast-util-to-markdown';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import Popper, { PopperPlacementType } from '@mui/material/Popper';
+import { createPortal } from 'react-dom';
+import { useSignalEffect } from '@preact/signals-react';
+import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
+
+import {
+  Box,
+  Divider,
+  IconButton,
+  Paper,
+  Stack,
+  SxProps,
+  Tooltip,
+  useTheme,
+} from '@mui/material';
+import Fade from '@mui/material/Fade';
+
+/** Icons */
+import AddCircleIcon from '@mui/icons-material/AddCircle';
+import RemoveCircleIcon from '@mui/icons-material/RemoveCircle';
+import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
+
+import { ImageLabelDirectiveNode } from './types';
+import { imageLabelKeys$, imagePopper$ } from './vars';
+import { useSelector } from 'react-redux';
+import { ButtonIcon } from '../../../../utility/buttons';
+import { debugLog } from '../../../../utility/logger';
+import { editorInPlayback$ } from '../../state/vars';
+import {
+  dividerColor,
+  onCheckClickOutsideImageLabel,
+  toolbarRect$,
+} from '@rapid-cmi5/ui';
+import { convertMarkdownToMdast } from '../../util/conversion';
+
+/**
+ * Accordion Editor for accordion directives
+ * @param param0
+ * @returns
+ */
+export const ImageLabelEditor: React.FC<
+  DirectiveEditorProps<ImageLabelDirectiveNode>
+> = ({ lexicalNode, mdastNode, parentEditor }) => {
+  const popperRef = useRef<null | HTMLDivElement>(null);
+  const [editor] = useLexicalComposerContext();
+  const [isOpen, setIsOpen] = useState(false);
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  const [placement, setPlacement] = useState<PopperPlacementType>();
+  const [maxHeight, setMaxHeight] = useState<number>(999);
+  const [maxWidth, setMaxWidth] = useState<number>(999);
+  const [portalTarget, setPortalTarget] = useState<any>(null);
+
+  const [isHovered, setIsHovered] = useState(false);
+  const muiTheme = useTheme();
+  const themedDividerColor = useSelector(dividerColor);
+
+  const [sxProps, setSxProps] = useState<SxProps>({});
+  const [title, setTitle] = useState(mdastNode.attributes.title);
+
+  const [isPlayback, readOnly, syntaxExtensions] = useCellValues(
+    editorInPlayback$,
+    readOnly$,
+    syntaxExtensions$,
+  );
+
+  /**
+   * Safely retrieves the value of a specific attribute from a node's attributes object.
+   *
+   * @param nodeAttributes - An object representing attribute key-value pairs,
+   *                         where each value can be a string, null, or undefined.
+   * @param attributeName - The name of the attribute to retrieve.
+   *
+   * @returns The value of the attribute if it exists (even if null), or `undefined` if the key is not present.
+   */
+  const getAttributeValue = (
+    nodeAttributes: Record<string, string | null | undefined>,
+    attributeName: string,
+  ) => {
+    if (attributeName in nodeAttributes) {
+      return nodeAttributes[attributeName];
+    }
+    return undefined;
+  };
+
+  /**
+   * Image Id from attributes
+   */
+  const imageId: string =
+    getAttributeValue(mdastNode.attributes, 'imageId') || '';
+
+  /**
+   * Label Title
+   */
+  const theTitle: string =
+    getAttributeValue(mdastNode.attributes, 'title') || '';
+  const transientId = lexicalNode.getKey();
+
+  /**
+   * Label Position from attributes
+   */
+  const pos = useMemo(() => {
+    const xyPos = [0, 0];
+
+    try {
+      if (typeof mdastNode.attributes?.x !== 'undefined') {
+        xyPos[0] = parseFloat(mdastNode.attributes.x);
+      }
+      if (typeof mdastNode.attributes?.y !== 'undefined') {
+        xyPos[1] = parseFloat(mdastNode.attributes.y);
+      }
+    } catch (e) {
+      debugLog('image label x y could not be parsed');
+    }
+    return xyPos;
+  }, [mdastNode.attributes?.x, mdastNode.attributes?.y]);
+
+  /**
+   * Determines vertical or horizontal image layout
+   * then sets placement based on what provides the most space for content
+   * @returns
+   */
+  const checkLabelPlacement = () => {
+    const imgEl = document.getElementById(imageId);
+    if (imgEl) {
+      const imageRect = imgEl.getBoundingClientRect();
+
+      //pos 0 is X distance from image left to marker
+      //pos 1 is Y dist from image top to marker
+
+      // determine vertical or horizontal layout
+      // then determine placement based on where there is the most space
+      if (imageRect.height > imageRect.width) {
+        //align top or bottom
+        const bottomHeight = imageRect.height - pos[1];
+        setMaxWidth(imageRect.width);
+        if (pos[1] > bottomHeight) {
+          //align left
+          setPlacement('top');
+          setMaxHeight(pos[1]);
+        } else {
+          //align right
+          setPlacement('bottom');
+          setMaxHeight(bottomHeight);
+        }
+      } else {
+        //align left or right
+        setMaxHeight(imageRect.height);
+        const rightWidth = imageRect.width - pos[0];
+        if (pos[0] > imageRect.width - pos[0]) {
+          //align left
+          setPlacement('left');
+          setMaxHeight(pos[0]);
+        } else {
+          //align right
+          setPlacement('right');
+          setMaxHeight(rightWidth);
+        }
+      }
+    }
+  };
+
+  /**
+   * Detect clicks outside of open label content
+   * If mouse is in toolbar area, disregard the click so users can apply text effects
+   * If mouse is in label content, disregard
+   * If mouse is outside label content, hide
+   * @param event
+   * @returns
+   */
+  const handleMouseDown = (event: MouseEvent) => {
+
+    // detect click in toolbar area
+    if (
+      toolbarRect$.value &&
+      event.clientX >= toolbarRect$.value.left &&
+      event.clientY < toolbarRect$.value.bottom
+    ) {
+      //ignore clicks on toolbar so user can apply text effects
+      return;
+    }
+
+    // if clicking on label content, ignore
+    const target = event.target as HTMLElement;
+    if (popperRef.current?.contains(target)) {
+      return;
+    }
+
+    // detect click outside
+    document.removeEventListener('mousedown', handleMouseDown);
+    onCheckClickOutsideImageLabel(imageId);
+  };
+
+  /**
+   * Close the label content, if open
+   */
+  const closeLabel = () => {
+    document.removeEventListener('mousedown', handleMouseDown);
+    imageLabelKeys$.value = {
+      ...imageLabelKeys$.value,
+      [imageId]: null,
+    };
+  };
+
+  /**
+   * Toggle Label Content open/closed
+   * @param event
+   */
+  const handleToggle = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (imageId) {
+      if (isOpen) {
+        closeLabel();
+      } else {
+        checkLabelPlacement();
+        setAnchorEl(event?.currentTarget);
+        imageLabelKeys$.value = {
+          ...imageLabelKeys$.value,
+          [imageId]: transientId,
+        };
+        document.removeEventListener('mousedown', handleMouseDown);
+        document.addEventListener('mousedown', handleMouseDown);
+      }
+    } else {
+      debugLog('no imageId found for label');
+    }
+  };
+
+  // Escape closes the label independent of the toggle button, which NVDA can
+  // lose track of right after it causes a DOM change (confirmed live).
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeLabel();
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [isOpen]);
+
+  /**
+   * Listen for image label open change
+   * synch with local state
+   */
+  useSignalEffect(() => {
+    const labels = imageLabelKeys$.value;
+
+    if (Object.prototype.hasOwnProperty.call(labels, imageId)) {
+      if (labels[imageId] === transientId) {
+        imagePopper$.value = popperRef.current;
+        setIsOpen(true);
+        return;
+      }
+    }
+
+    setIsOpen(false);
+  });
+
+  /**
+   * Find container div in ImageEditor to portal labels into
+   * Retrieved with imageId
+   */
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const el = document.getElementById(`image-labels-${imageId}`);
+      if (el) {
+        setPortalTarget(el);
+        clearInterval(interval);
+      }
+    }, 50);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Get the target DOM node
+  if (portalTarget) {
+    return createPortal(
+      <>
+        <Stack
+          data-testid="directive-image-label"
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+          direction="row"
+          sx={{
+            backgroundColor:
+              muiTheme.palette.mode === 'dark' ? '#282b30e6' : '#EEEEEEe6',
+            borderRadius: 16,
+            position: 'absolute',
+            left: pos[0],
+            top: pos[1],
+          }}
+        >
+          <ButtonIcon
+            name="Image Marker"
+            props={{
+              'aria-expanded': isOpen,
+              'aria-label': isOpen ? 'Hide label content' : 'Show label content',
+              onClick: (event) => {
+                event.stopPropagation();
+                handleToggle(event);
+              },
+            }}
+          >
+            {isOpen ? (
+              <RemoveCircleIcon color="warning" />
+            ) : (
+              <AddCircleIcon color="warning" />
+            )}
+          </ButtonIcon>
+          {!readOnly && !isPlayback && isHovered && (
+            <IconButton
+              aria-label="delete"
+              onClick={(e) => {
+                e.preventDefault();
+                editor.update(() => {
+                  lexicalNode?.remove();
+                });
+              }}
+            >
+              <DeleteForeverIcon />
+            </IconButton>
+          )}
+        </Stack>
+        {/* disablePortal prevents breaking theme and layout */}
+        <Popper
+          ref={popperRef}
+          open={isOpen}
+          anchorEl={anchorEl}
+          autoFocus={true}
+          placement={placement}
+          transition
+          sx={{ zIndex: 2 }}
+          disablePortal
+          keepMounted
+        >
+          {({ TransitionProps }) => (
+            <Fade {...TransitionProps} timeout={350}>
+              <Stack
+                direction="column"
+                sx={{
+                  maxWidth: maxWidth,
+                  maxHeight: maxHeight,
+                  backgroundColor: 'background.paper',
+                  borderRadius: 2,
+                  borderColor: themedDividerColor,
+                  borderStyle: 'solid',
+                  borderWidth: '1px',
+                }}
+              >
+                {/* title editor */}
+                <Box sx={{ padding: 2 }}>
+                  <NestedLexicalEditor<Paragraph>
+                    getContent={(node) => {
+                      const theNode = convertMarkdownToMdast(
+                        theTitle,
+                        syntaxExtensions,
+                      );
+                      return theNode.children;
+                    }}
+                    getUpdatedMdastNode={(
+                      mdastParagraphNode,
+                      paragraphChildren: any,
+                    ) => {
+                      if (paragraphChildren.length > 0) {
+                        const titleStr = toMarkdown(paragraphChildren[0]);
+                        if (titleStr === title) {
+                          return mdastParagraphNode;
+                        }
+
+                        setTitle(titleStr);
+
+                        return {
+                          ...mdastParagraphNode,
+                          attributes: {
+                            ...mdastNode.attributes,
+                            title: titleStr,
+                          },
+                        };
+                      }
+
+                      return mdastParagraphNode;
+                    }}
+                    contentEditableProps={{ 'aria-label': 'Image label title' }}
+                  />
+                </Box>
+                <Divider sx={{ paddingTop: 0, marginBottom: 0 }} />
+                {/* content editor */}
+                <Box
+                  sx={{
+                    width: '100%',
+                    height: '100%',
+                    overflow: 'auto',
+                    padding: 2,
+                  }}
+                >
+                  <NestedLexicalEditor<ContainerDirective>
+                    block={true}
+                    getContent={(node) => {
+                      return node.children;
+                    }}
+                    getUpdatedMdastNode={(node, children: any) => ({
+                      ...node,
+                      children,
+                    })}
+                    contentEditableProps={{
+                      'aria-label': theTitle
+                        ? `${theTitle} label content`
+                        : 'Image label content',
+                    }}
+                  />
+                </Box>
+              </Stack>
+            </Fade>
+          )}
+        </Popper>
+      </>,
+      portalTarget, // Render the children into the portalTarget DOM node
+    );
+  }
+
+  /**
+   * Render blank, no target found
+   */
+  return (
+    <Box
+      sx={{
+        margin: 0,
+        padding: 0,
+        position: 'relative',
+        ...sxProps,
+      }}
+    />
+  );
+};

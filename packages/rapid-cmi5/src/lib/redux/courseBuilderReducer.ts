@@ -1,0 +1,755 @@
+import {
+  CourseData,
+  SlideType,
+  Operation,
+  CourseAU,
+  Rc5Theme,
+  ScenarioContent,
+} from '@rapid-cmi5/cmi5-build-common';
+import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { RootState } from './store';
+import { defaultCourseData, resetPersistance } from '@rapid-cmi5/ui';
+import { ViewModeEnum } from '../design-tools/course-builder/CourseBuilderTypes';
+
+/**
+ * Before user is connected to repo, they can play in slides sandbox
+ * FUTURE we will allow them to apply stash to a new lesson
+ */
+export type CourseSandbox = {
+  wasRepo: string | null;
+  wasCoursePath?: string;
+  wasBlockIndex: number;
+  wasSlides?: SlideType[];
+  wasAuIndex: number;
+};
+
+export type CourseBuilderState = {
+  courseOperations: Record<string, Operation>;
+  courseData: CourseData;
+  currentRepo: string;
+  currentCourse: string;
+  currentSlideIndex: number;
+  dirtyDisplay: number;
+  dirtyReason: string;
+  gitViewCurrentTab: number;
+  isLessonMounted: boolean;
+  courseSandbox?: CourseSandbox;
+  sourceCourseData?: CourseData;
+  scenario?: ScenarioContent;
+  teamScenario?: ScenarioContent;
+  displayData: string;
+  slideDeckText: string;
+  slides: SlideType[];
+  version?: number;
+  viewMode: ViewModeEnum;
+  currentAuIndex: number;
+  currentBlockIndex: number;
+  currentAuPath?: string;
+  expandedFileTreeNodes: { [key: string]: string[] };
+  isFileExplorerExpanded: boolean;
+  isFileTreeOpen: boolean;
+  isRepoViewInit: boolean;
+  isVersionControlExpanded: boolean;
+  repoFolderChange: boolean;
+  repoViewScrollTop: number;
+  // The repo cache allows us to store current AU and slide per repo and course pair
+  repoCache: RepoCache;
+};
+
+// Saves the state for various repos so you may swap between them easily.
+// Uses the slide and AU paths instead of index, so that you may still return to the same slide or AU
+// even if the slide order changes
+export type AuCache = {
+  currentBlockIndex: number;
+  lastAuPath: string;
+  lastSlidePath: string;
+};
+
+export type RepoCourseCache = {
+  lastCourse: string;
+  courses: {
+    [courseName: string]: AuCache;
+  };
+};
+
+export type RepoCache = {
+  [repoName: string]: RepoCourseCache;
+};
+
+/** @constant
+    @type {ProjectState}
+    @default
+*/
+export const initialStateCourseBuilder: CourseBuilderState = {
+  courseOperations: {},
+  currentSlideIndex: 0,
+  currentRepo: '',
+  currentCourse: '',
+  courseData: defaultCourseData,
+  gitViewCurrentTab: 0,
+  version: 0.1,
+  dirtyDisplay: 0,
+  dirtyReason: '',
+  displayData: '',
+  isLessonMounted: false,
+  courseSandbox: undefined,
+  scenario: undefined,
+  teamScenario: undefined,
+  slideDeckText: '',
+  sourceCourseData: undefined,
+  slides: [{ slideTitle: '', content: '', filepath: '' }],
+  viewMode: ViewModeEnum.RepoSelector,
+  currentAuIndex: 0,
+  currentBlockIndex: 0,
+  currentAuPath: '',
+  repoCache: {},
+  expandedFileTreeNodes: {},
+  isFileExplorerExpanded: true,
+  isFileTreeOpen: true,
+  isRepoViewInit: false,
+  isVersionControlExpanded: false,
+  repoFolderChange: false,
+  repoViewScrollTop: 0,
+};
+
+type tDirtyState = { reason?: string; counter?: number };
+
+/**
+ * Slice to persist redux states for anything occuring once range is selected in the UI
+ */
+export const courseBuilderSlice = createSlice({
+  name: 'courseBuilder',
+  initialState: initialStateCourseBuilder,
+  extraReducers: (builder) =>
+    builder.addCase(resetPersistance, () => {
+      return { ...initialStateCourseBuilder };
+    }),
+  reducers: {
+    loadCourse: (state, action: PayloadAction<CourseData>) => {
+      state.sourceCourseData = action.payload;
+    },
+
+    addCourseOperation: (
+      state,
+      action: PayloadAction<{ filepath: string; operation: Operation }>,
+    ) => {
+      const { filepath, operation } = action.payload;
+      state.courseOperations[filepath] = operation;
+    },
+    resetCourseOperations: (state) => {
+      state.courseOperations = {};
+    },
+    addASlide: (
+      state,
+      action: PayloadAction<{
+        slide: SlideType;
+        blockIndex: number;
+        auIndex: number;
+        insertionPoint?: number;
+      }>,
+    ) => {
+      const { insertionPoint, blockIndex, auIndex } = action.payload;
+      const newSlide = {
+        ...action.payload.slide,
+      };
+
+      addSlideOperation(newSlide.filepath, state);
+
+      const theSlides = [
+        ...state.courseData.blocks[blockIndex].aus[auIndex].slides,
+      ];
+
+      // Decide if this is a push operation or an insertion
+      if (insertionPoint) {
+        theSlides.splice(insertionPoint, 0, newSlide);
+      } else {
+        theSlides.push(newSlide);
+      }
+
+      // Decide if we should move our current slide index
+      // We dont want to move if the slide was added to a different lesson
+      if (state.currentAuIndex === auIndex) {
+        if (insertionPoint) {
+          state.currentSlideIndex = insertionPoint;
+        } else {
+          state.currentSlideIndex = theSlides.length - 1;
+        }
+      }
+
+      state.courseData.blocks[blockIndex].aus[auIndex].slides = theSlides;
+
+      state.dirtyReason = 'add slide';
+      state.dirtyDisplay += 1;
+      updateLastSlidePath(state);
+    },
+    reorderSlide: (
+      state,
+      action: PayloadAction<{
+        currentBlockIndex: number;
+        currentAuIndex: number;
+        newAuIndex: number;
+        currentSlideIndex: number;
+        newSlideIndex: number;
+        currentSlideMarkdown?: string;
+      }>,
+    ) => {
+      const {
+        currentBlockIndex,
+        newAuIndex,
+        newSlideIndex,
+        currentAuIndex,
+        currentSlideIndex,
+        currentSlideMarkdown,
+      } = action.payload;
+
+      if (currentAuIndex !== newAuIndex) return;
+
+      const slides =
+        state.courseData.blocks[currentBlockIndex].aus[currentAuIndex].slides;
+
+      const [movedSlide] = slides.splice(currentSlideIndex, 1);
+      slides.splice(newSlideIndex, 0, movedSlide);
+
+      if (currentAuIndex !== state.currentAuIndex) return;
+
+      const newCurrentSlideIndex = getReindexedPosition(
+        state.currentSlideIndex,
+        currentSlideIndex,
+        newSlideIndex,
+      );
+
+      if (currentSlideMarkdown) {
+        slides[newCurrentSlideIndex].content = currentSlideMarkdown;
+      }
+
+      state.currentSlideIndex = newCurrentSlideIndex;
+    },
+    reorderLesson: (
+      state,
+      action: PayloadAction<{
+        currentBlockIndex: number;
+        currentAuIndex: number;
+        newAuIndex: number;
+      }>,
+    ) => {
+      const { currentBlockIndex, newAuIndex, currentAuIndex } = action.payload;
+
+      const aus = state.courseData.blocks[currentBlockIndex].aus;
+
+      const [movedAu] = aus.splice(currentAuIndex, 1);
+      aus.splice(newAuIndex, 0, movedAu);
+
+      state.currentAuIndex = getReindexedPosition(
+        state.currentAuIndex,
+        currentAuIndex,
+        newAuIndex,
+      );
+    },
+    deleteSlide: (
+      state,
+      action: PayloadAction<{ lessonIndex: number; slideIndex: number }>,
+    ) => {
+      const { lessonIndex, slideIndex } = action.payload;
+      const block = state.courseData.blocks[state.currentBlockIndex];
+      const au = block.aus[lessonIndex];
+      const slides = au.slides;
+      const slide = slides[slideIndex];
+
+      deleteSlideOperation(slide.filepath, state);
+
+      //remove scenario if slide with scenario is deleted
+      if (typeof slide.content === 'string') {
+        if (slide.content.includes(':::scenario')) {
+          // Clear global scenario state
+          state.scenario = undefined;
+
+          // Clear scenario fields directly on the AU that owned the deleted slide
+          au.rangeosScenarioName = undefined;
+          au.rangeosScenarioUUID = undefined;
+        }
+        if (slide.content.includes(':::consoles')) {
+          // Clear global scenario state
+          state.teamScenario = undefined;
+        }
+      }
+
+      slides.splice(slideIndex, 1);
+
+      if (lessonIndex === state.currentAuIndex) {
+        // if the delete was below the current slide, we need to reindex
+        if (slideIndex <= state.currentSlideIndex) {
+          // Might as well insure we dont go lower than zero
+          state.currentSlideIndex = Math.max(state.currentSlideIndex - 1, 0);
+          updateLastSlidePath(state);
+        }
+      }
+
+      state.dirtyReason = 'delete slide';
+      state.dirtyDisplay += 1;
+    },
+    navigateSlide: (state, action: PayloadAction<number>) => {
+      state.currentSlideIndex = action.payload;
+      updateLastSlidePath(state);
+    },
+    changeViewMode(state, action: PayloadAction<ViewModeEnum>) {
+      state.viewMode = action.payload;
+    },
+    setGitViewCurrentTab: (state, action: PayloadAction<number>) => {
+      state.gitViewCurrentTab = action.payload;
+    },
+    setIsLessonMounted: (state, action: PayloadAction<boolean>) => {
+      state.isLessonMounted = action.payload;
+    },
+    saveSlideContent: (
+      state,
+      action: PayloadAction<{
+        position: number;
+        content: string;
+        skipShouldDirty?: boolean;
+      }>,
+    ) => {
+      const block = state.courseData.blocks[state.currentBlockIndex];
+      if (!block) return;
+
+      const au = block.aus[state.currentAuIndex];
+      if (!au) return;
+
+      const slide = au.slides[state.currentSlideIndex];
+      if (!slide) return;
+
+      slide.content = action.payload.content;
+
+      // For now we are just assuming that the file was edited, this must be fixed in the future
+      editSlideOperation(slide.filepath, state);
+    },
+    updateCourseData: (state, action: PayloadAction<CourseData>) => {
+      state.courseData = action.payload;
+    },
+    updateCourseSlideData: (
+      state,
+      action: PayloadAction<{
+        blockIndex: number;
+        lessonIndex: number;
+        slideIndex: number;
+        slide: SlideType;
+      }>,
+    ) => {
+      const { blockIndex, lessonIndex, slideIndex, slide } = action.payload;
+      editSlideOperation(slide.filepath, state);
+      state.courseData.blocks[blockIndex].aus[lessonIndex].slides[slideIndex] =
+        slide;
+    },
+    updateCourseAuData: (
+      state,
+      action: PayloadAction<{
+        blockIndex: number;
+        lessonIndex: number;
+        au: CourseAU;
+      }>,
+    ) => {
+      const { blockIndex, lessonIndex, au } = action.payload;
+      state.courseData.blocks[blockIndex].aus[lessonIndex] = au;
+    },
+    removeCourseAu: (
+      state,
+      action: PayloadAction<{
+        blockIndex: number;
+        lessonIndex: number;
+      }>,
+    ) => {
+      const { blockIndex, lessonIndex } = action.payload;
+
+      state.courseData.blocks[blockIndex].aus.splice(lessonIndex, 1);
+    },
+    updateDirtyDisplay: (state, action: PayloadAction<tDirtyState>) => {
+      state.dirtyReason = action.payload.reason || '';
+      if (typeof action.payload.counter === 'undefined') {
+        state.dirtyDisplay += 1;
+      } else {
+        state.dirtyDisplay = action.payload.counter;
+      }
+    },
+    updateExpandedFileTreeNodes: (
+      state,
+      action: PayloadAction<{ repoName: string; nodeList: string[] }>,
+    ) => {
+      // Extra safety measure due to upgrading with a redux cache that does not have the object
+      if (state.expandedFileTreeNodes === undefined)
+        state.expandedFileTreeNodes = {};
+
+      state.expandedFileTreeNodes[action.payload.repoName] =
+        action.payload.nodeList;
+    },
+    setIsFileTreeOpen: (state, action: PayloadAction<boolean>) => {
+      state.isFileTreeOpen = action.payload;
+    },
+    setRepoViewScrollTop: (state, action: PayloadAction<number>) => {
+      state.repoViewScrollTop = action.payload;
+    },
+    toggleRepoFolderChange: (state, action: PayloadAction<boolean>) => {
+      state.repoFolderChange = action.payload;
+    },
+    updateScenario: (
+      state,
+      action: PayloadAction<{
+        scenario: ScenarioContent | undefined;
+        shouldDirty?: boolean;
+      }>,
+    ) => {
+      state.scenario = action.payload.scenario;
+      state.courseData = {
+        ...state.courseData,
+        blocks: state.courseData.blocks.map((block, blockIndex) =>
+          blockIndex === state.currentBlockIndex
+            ? {
+                ...block,
+                aus: block.aus.map((au, auIndex) =>
+                  auIndex === state.currentAuIndex
+                    ? {
+                        ...au,
+                        rangeosScenarioName: state.scenario?.name,
+                        rangeosScenarioUUID: state.scenario?.uuid,
+                      }
+                    : au,
+                ),
+              }
+            : block,
+        ),
+      };
+      if (action.payload.shouldDirty) {
+        state.dirtyReason = 'scenario updated';
+        state.dirtyDisplay += 1;
+      }
+    },
+    updateTeamScenario: (
+      state,
+      action: PayloadAction<{
+        scenario: ScenarioContent | undefined;
+      }>,
+    ) => {
+      state.teamScenario = action.payload.scenario;
+    },
+    updateDisplayText: (state, action: PayloadAction<string>) => {
+      state.displayData = action.payload;
+    },
+    updateAuAndSlideIndex: (state, action: PayloadAction<number[]>) => {
+      if (action.payload.length === 2) {
+        state.currentSlideIndex = action.payload[1];
+        state.currentAuIndex = action.payload[0];
+      }
+      updateLastAuPath(state);
+    },
+    updateAuIndex: (state, action: PayloadAction<number>) => {
+      state.currentSlideIndex = 0;
+      state.currentAuIndex = action.payload;
+      updateLastAuPath(state);
+    },
+    updateAuPath: (state, action: PayloadAction<string | undefined>) => {
+      state.currentAuPath = action.payload;
+    },
+    updateBlockIndex: (state, action: PayloadAction<number>) => {
+      state.currentBlockIndex = action.payload;
+      if (state.currentRepo) {
+        state.repoCache[state.currentRepo].courses[
+          state.currentCourse
+        ].currentBlockIndex = state.currentBlockIndex;
+      }
+    },
+    handleRepoDeletion: (state, action: PayloadAction<string>) => {
+      const deletedRepo = action.payload;
+
+      const newRepoCache = { ...state.repoCache };
+      delete newRepoCache[deletedRepo];
+
+      return {
+        ...initialStateCourseBuilder,
+        viewMode: ViewModeEnum.GitEditor, // stay on git repo view
+        repoCache: newRepoCache,
+      };
+    },
+
+    /**
+     * Initializes or restores the repo cache state when a user switches to a specific repo-course combination.
+     *
+     * This reducer:
+     * - Sets `currentRepo` and `currentCourse`
+     * - Checks if a `repoCache` entry exists for this repo and course
+     *   - If found: restores `currentBlockIndex`, `currentAuIndex`, and `currentSlideIndex` using the last cached AU/slide paths
+     *   - If not: sets the cache to default (first block, AU, and slide)
+     * - Updates `repoCache` with the current selection paths
+     *
+     * @example
+     * dispatch(handleCacheChange({ currentRepo: 'sandbox', currentCourse: 'intro' }));
+     *
+     * @param state - The current `CourseBuilderState`
+     * @param action - An object containing `currentRepo` and `currentCourse`
+     */
+    handleCacheChange: (
+      state,
+      action: PayloadAction<{ currentRepo: string; currentCourse: string }>,
+    ) => {
+      const { currentRepo, currentCourse } = action.payload;
+      state.currentRepo = currentRepo;
+      state.currentCourse = currentCourse;
+
+      // Ensure cache structure
+      if (!state.repoCache) state.repoCache = {};
+      if (!state.repoCache[currentRepo])
+        state.repoCache[currentRepo] = {
+          courses: {},
+          lastCourse: currentCourse,
+        };
+
+      if (state.repoCache[currentRepo].courses[currentCourse]) {
+        const auIndex = getAuIndexFromCache(state, currentRepo, currentCourse);
+        state.repoCache[currentRepo].lastCourse = currentCourse;
+        if (auIndex !== -1) {
+          const blockIndex =
+            state.repoCache[currentRepo].courses[currentCourse]
+              .currentBlockIndex;
+
+          const slideIndex = getSlideIndexFromCache(
+            state,
+            blockIndex,
+            auIndex,
+            currentRepo,
+            currentCourse,
+          );
+
+          state.currentBlockIndex = blockIndex;
+          state.currentAuIndex = auIndex;
+          state.currentSlideIndex = slideIndex !== -1 ? slideIndex : 0;
+        } else {
+          setDefaultCache(state, currentRepo, currentCourse);
+        }
+      } else {
+        setDefaultCache(state, currentRepo, currentCourse);
+      }
+
+      updateLastSlideAndAuPath(state);
+    },
+  },
+});
+
+function editSlideOperation(filepath: string, state: CourseBuilderState) {
+  // Its still an add for a first time file
+  if (state.courseOperations[filepath] !== Operation.Add) {
+    state.courseOperations[filepath] = Operation.Edit;
+  }
+}
+function deleteSlideOperation(filepath: string, state: CourseBuilderState) {
+  if (state.courseOperations[filepath] === Operation.Add) {
+    state.courseOperations[filepath] = Operation.Cancel;
+  } else {
+    state.courseOperations[filepath] = Operation.Delete;
+  }
+}
+function addSlideOperation(filepath: string, state: CourseBuilderState) {
+  state.courseOperations[filepath] = Operation.Add;
+}
+
+function getAuIndexFromCache(
+  state: CourseBuilderState,
+  repo: string,
+  course: string,
+): number {
+  const lastAuPath = state.repoCache[repo].courses[course].lastAuPath;
+  return state.courseData.blocks[state.currentBlockIndex].aus.findIndex(
+    (au) => au?.dirPath === lastAuPath,
+  );
+}
+
+function getSlideIndexFromCache(
+  state: CourseBuilderState,
+  blockIndex: number,
+  auIndex: number,
+  repo: string,
+  course: string,
+): number {
+  const lastSlidePath = state.repoCache[repo].courses[course].lastSlidePath;
+  return state.courseData.blocks[blockIndex].aus[auIndex].slides.findIndex(
+    (slide) => slide.filepath === lastSlidePath,
+  );
+}
+
+function setDefaultCache(
+  state: CourseBuilderState,
+  repo: string,
+  course: string,
+) {
+  const firstSlide = state.courseData.blocks[0].aus[0]?.slides[0];
+  const firstAu = state.courseData.blocks[0].aus[0];
+
+  state.currentBlockIndex = 0;
+  state.currentAuIndex = 0;
+  state.currentSlideIndex = 0;
+
+  state.repoCache[repo].courses[course] = {
+    lastSlidePath: firstSlide.filepath,
+    lastAuPath: firstAu.dirPath,
+    currentBlockIndex: 0,
+  };
+}
+
+function updateLastSlideAndAuPath(state: CourseBuilderState) {
+  if (
+    state.currentRepo &&
+    state.repoCache[state.currentRepo] &&
+    state.repoCache[state.currentRepo].courses[state.currentCourse]
+  ) {
+    const currentBlock = state.courseData.blocks[state.currentBlockIndex];
+    const currentAu = currentBlock.aus[state.currentAuIndex];
+    const currentSlide = currentAu?.slides[state.currentSlideIndex];
+
+    state.repoCache[state.currentRepo].courses[state.currentCourse] = {
+      ...state.repoCache[state.currentRepo].courses[state.currentCourse],
+      lastSlidePath: currentSlide.filepath,
+      lastAuPath: currentAu.dirPath,
+    };
+  }
+}
+
+function updateLastSlidePath(state: CourseBuilderState) {
+  if (
+    state.currentRepo &&
+    state.repoCache[state.currentRepo]?.courses[state.currentCourse]
+  ) {
+    const currentSlide =
+      state.courseData.blocks[state.currentBlockIndex].aus[state.currentAuIndex]
+        .slides[state.currentSlideIndex];
+    if (!currentSlide?.filepath) return;
+
+    state.repoCache[state.currentRepo].courses[
+      state.currentCourse
+    ].lastSlidePath = currentSlide.filepath;
+  }
+}
+
+/**
+ * Calculates the new index of an item after reordering in a list.
+ *
+ * @param currentIndex - The original index of the item being reindexed.
+ * @param fromIndex - The index from which an item is being moved.
+ * @param toIndex - The index to which the item is being moved.
+ * @returns The new index for the item at `currentIndex` after the reordering.
+ *
+ * @remarks
+ * This is used when reordering items (e.g. slides or lessons) in a list.
+ * It determines how the position of your current slide or lesson changes due to the move.
+ *
+ */
+function getReindexedPosition(
+  currentIndex: number,
+  fromIndex: number,
+  toIndex: number,
+): number {
+  if (currentIndex === fromIndex) return toIndex;
+  if (currentIndex > fromIndex && currentIndex <= toIndex)
+    return currentIndex - 1;
+  if (currentIndex < fromIndex && currentIndex >= toIndex)
+    return currentIndex + 1;
+  return currentIndex;
+}
+
+function updateLastAuPath(state: CourseBuilderState) {
+  if (
+    state.currentRepo &&
+    state.repoCache[state.currentRepo] &&
+    state.repoCache[state.currentRepo].courses[state.currentCourse]
+  ) {
+    const currentBlock = state.courseData.blocks[state.currentBlockIndex];
+    const currentAu = currentBlock.aus[state.currentAuIndex];
+
+    state.repoCache[state.currentRepo].courses[state.currentCourse].lastAuPath =
+      currentAu.dirPath;
+  }
+}
+
+// Export actions to dispatch from components
+export const {
+  resetCourseOperations,
+  addCourseOperation,
+  addASlide,
+  changeViewMode,
+  deleteSlide,
+  navigateSlide,
+  saveSlideContent,
+  setGitViewCurrentTab,
+  setIsFileTreeOpen,
+  setIsLessonMounted,
+  setRepoViewScrollTop,
+  toggleRepoFolderChange,
+  reorderSlide,
+  reorderLesson,
+  updateAuAndSlideIndex,
+  updateCourseData,
+  updateCourseSlideData,
+  updateCourseAuData,
+  updateDisplayText,
+  updateExpandedFileTreeNodes,
+  updateScenario,
+  updateTeamScenario,
+  updateDirtyDisplay,
+  loadCourse,
+  updateAuIndex,
+  updateAuPath,
+  updateBlockIndex,
+  handleCacheChange,
+  handleRepoDeletion,
+  removeCourseAu,
+} = courseBuilderSlice.actions;
+
+// The function below is called a selector and allows us to select a value from
+// the state. Selectors can also be defined inline where they're used instead of
+// in the slice file. For example: `useSelector((state: RootState) => state.counter.value)`
+// Ex.package is entry in store
+export const currentSlideNum = (state: RootState) =>
+  state.courseBuilder.currentSlideIndex;
+export const courseOperations = (state: RootState) =>
+  state.courseBuilder.courseOperations;
+export const dirtyDisplay = (state: RootState) =>
+  state.courseBuilder.dirtyDisplay;
+export const gitViewCurrentTab = (state: RootState) =>
+  state.courseBuilder.gitViewCurrentTab;
+export const repoCache = (state: RootState) => state.courseBuilder.repoCache;
+export const isLessonMounted = (state: RootState) =>
+  state.courseBuilder.isLessonMounted;
+export const scenario = (state: RootState) => state.courseBuilder.scenario;
+export const teamScenario = (state: RootState) =>
+  state.courseBuilder.teamScenario;
+export const slideDeck = (state: RootState) => state.courseBuilder.slides;
+export const slideDeckText = (state: RootState) =>
+  state.courseBuilder.slideDeckText;
+export const displayData: (state: RootState) => string = (state) =>
+  state.courseBuilder.displayData; //TO BE REMOVED
+export const courseDataCache = (state: RootState) =>
+  state.courseBuilder.courseData;
+export const currentViewMode = (state: RootState) =>
+  state.courseBuilder.viewMode;
+export const currentAu = (state: RootState) =>
+  state.courseBuilder.currentAuIndex;
+export const currentAuPath = (state: RootState) =>
+  state.courseBuilder.currentAuPath;
+export const currentBlock = (state: RootState) =>
+  state.courseBuilder.currentBlockIndex;
+export const currentCourse = (state: RootState) =>
+  state.courseBuilder.currentCourse;
+export const courseSandboxSel = (state: RootState) =>
+  state.courseBuilder.courseSandbox;
+export const expandedFileTreeNodes = (state: RootState) =>
+  state.courseBuilder.expandedFileTreeNodes;
+export const isFileExplorerExpanded = (state: RootState) =>
+  state.courseBuilder.isFileExplorerExpanded;
+export const isFileTreeOpen = (state: RootState) =>
+  state.courseBuilder.isFileTreeOpen;
+export const isRepoViewInit = (state: RootState) =>
+  state.courseBuilder.isRepoViewInit;
+export const isDisplayDirty = (state: RootState) =>
+  state.courseBuilder.dirtyDisplay > 0 ? true : false;
+export const isVersionControlExpanded = (state: RootState) =>
+  state.courseBuilder.isVersionControlExpanded;
+export const repoFolderChange = (state: RootState) =>
+  state.courseBuilder.repoFolderChange;
+export const repoViewScrollTop = (state: RootState) =>
+  state.courseBuilder.repoViewScrollTop;
+export default courseBuilderSlice.reducer;

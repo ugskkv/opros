@@ -1,0 +1,57 @@
+import {
+  courseDataCache,
+  currentAu,
+  currentBlock,
+  currentSlideNum,
+  navigateSlide,
+  scenario,
+  slideDeck,
+} from '../../../redux/courseBuilderReducer';
+import { useDispatch, useSelector } from 'react-redux';
+import { useLessonAssets } from '../../../contexts/LessonAssetsContext';
+import { AuContextProps } from '@rapid-cmi5/cmi5-build-common';
+
+/**
+ * AU State & Methods
+ * @returns AuContextProps
+ */
+export const useAuContext = (): AuContextProps => {
+  const currentSlideIndex = useSelector(currentSlideNum);
+  const courseData = useSelector(courseDataCache);
+  const currentBlockIndex = useSelector(currentBlock);
+  const currentAuIndex = useSelector(currentAu);
+  const scenarioSel = useSelector(scenario);
+  const slides = useSelector(slideDeck);
+
+  const dispatch = useDispatch();
+
+  const { getLocalFileBlobUrl } = useLessonAssets();
+
+  //RC5 removal
+  const getSlide = (props: AuContextProps) => {
+    return null;
+  };
+
+  const setCurrentSlideIndex = (slideNum: number) => {
+    dispatch(navigateSlide(slideNum));
+  };
+
+  return {
+    activeTab: currentSlideIndex,
+    course: courseData,
+    au: courseData.blocks[currentBlockIndex]?.aus?.[currentAuIndex],
+    progressPercent: 0,
+    viewedSlides: [],
+    scenario: scenarioSel,
+    slides: slides,
+    getSlide,
+    setActiveTab: setCurrentSlideIndex,
+    setProgress: null,
+    getLocalImage: getLocalFileBlobUrl,
+    isAuthenticated: false,
+    isTestMode: true,
+    submitScore: null,
+    setActivityCache: null,
+    getActivityCache: null,
+  };
+};

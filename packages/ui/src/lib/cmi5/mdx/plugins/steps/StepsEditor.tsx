@@ -1,0 +1,927 @@
+import {
+  DirectiveEditorProps,
+  insertMarkdown$,
+  NestedLexicalEditor,
+  readOnly$,
+  useCellValues,
+  usePublisher,
+} from '@mdxeditor/editor';
+import * as Mdast from 'mdast';
+import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
+import type { BlockContent, DefinitionContent } from 'mdast';
+import { ContainerDirective } from 'mdast-util-directive';
+import {
+  CSSProperties,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+
+import {
+  Box,
+  IconButton,
+  List,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
+  Paper,
+  Stack,
+  SxProps,
+  Tooltip,
+  Typography,
+  TypographyOwnProps,
+  useTheme,
+} from '@mui/material';
+
+/** Icons */
+import AddIcon from '@mui/icons-material/Add';
+import ArrowBackIosIcon from '@mui/icons-material/ArrowBackIos';
+import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos';
+import DeleteIconButton from '../../components/DeleteIconButton';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import EditIcon from '@mui/icons-material/Edit';
+import PaletteIcon from '@mui/icons-material/Palette';
+import InsertLineReturnButton from '../../components/InsertLineReturnButton';
+
+import { TextFieldMainUi } from '../../../../inputs/textfields/textfields';
+import { StepsContext } from './StepsContext';
+import { StepContentDirectiveNode, StepDirectiveNode } from './types';
+
+import { DEFAULT_STEP } from './constants';
+import ModalDialog from '../../../../modals/ModalDialog';
+import {
+  ButtonIcon,
+  ButtonMinorUi,
+  ButtonOptions,
+} from '../../../../utility/buttons';
+import { parseStyleString } from '../../../markdown/MarkDownParser';
+import { editorInPlayback$ } from '../../state/vars';
+import { convertMdastToMarkdown } from '../../util/conversion';
+import { useCoursePresentation } from '../../contexts/PresentationContext';
+import {
+  resolveLessonThemeCSS,
+  resolveBlockMaxWidth,
+} from '../../../../styles/lessonThemeStyles';
+import { ColorSelectionPopover } from '../../../../colors/ColorSelectionPopover';
+import { SHAPE_PRESET_COLORS } from '../../constants/colors';
+import { BlockAppearanceForm } from '../shared/BlockAppearanceForm';
+import { useGutterRight } from '../shared/useGutterRight';
+import { ContentWidthEnum } from '@rapid-cmi5/cmi5-build-common';
+import { BackgroundColorTrigger, useBackgroundColors } from '@rapid-cmi5/ui';
+
+/**
+ * Steps Editor for steps directive
+ * @param param0
+ * @returns
+ */
+export const StepsEditor: React.FC<DirectiveEditorProps<StepDirectiveNode>> = ({
+  lexicalNode,
+  mdastNode,
+  parentEditor,
+}) => {
+  const muiTheme = useTheme();
+  const delay = (ms: number) => new Promise((res) => setTimeout(res, ms));
+  const insertMarkdown = usePublisher(insertMarkdown$);
+  const [editor] = useLexicalComposerContext();
+
+  const [formData, setFormData] = useState<Array<StepContentDirectiveNode>>(
+    structuredClone(mdastNode.children),
+  );
+  const [isConfiguring, setIsConfiguring] = useState(false);
+  const [step, setStep] = useState(0);
+  const [stepCount, setStepCount] = useState(0);
+  const [sxProps, setSxProps] = useState<SxProps>({});
+
+  const [isPlayback, readOnly] = useCellValues(editorInPlayback$, readOnly$);
+
+  const { rc5Theme } = useCoursePresentation();
+  const resolvedThemeCSS = resolveLessonThemeCSS(rc5Theme);
+  const blockPadding = resolvedThemeCSS
+    ? (resolvedThemeCSS.blockPadding ?? '0px')
+    : '32px';
+
+  const [contentWidth, setContentWidth] = useState<
+    ContentWidthEnum | undefined
+  >(mdastNode.attributes.contentWidth);
+  const [blockAppearanceOpen, setBlockAppearanceOpen] = useState(false);
+  const blockMaxWidth = resolveBlockMaxWidth(contentWidth);
+  const { containerRef, menuRight } = useGutterRight(
+    resolvedThemeCSS,
+    blockMaxWidth,
+  );
+
+  const {
+    backgroundColor,
+    colorPickerAnchor,
+    openPicker,
+    pendingColor,
+    pendingColorRef,
+    setBackgroundColor,
+    setColorPickerAnchor,
+    setOverrideColor,
+    setPendingColorAndRef,
+  } = useBackgroundColors(mdastNode?.attributes?.['backgroundColor'] ?? '');
+
+  const skipNextCloseRebuildRef = useRef(false);
+  const headingRef = useRef<HTMLElement>(null);
+  const isFirstStepRenderRef = useRef(true);
+
+  /**
+   * Title for the current step, derived directly from the mdast so it
+   * updates in the same render as `step` (no state round-trip that could
+   * lag behind or fail to change when titles repeat).
+   */
+  const title = useMemo(() => {
+    if (
+      Object.prototype.hasOwnProperty.call(
+        mdastNode.children[step].attributes,
+        'title',
+      )
+    ) {
+      return mdastNode.children[step].attributes['title'] || '';
+    }
+    return '';
+  }, [step, mdastNode]);
+
+  const a11yStepProps = (index: number) => ({
+    id: `step-${index}`,
+    'aria-controls': `tabpanel-${index}`,
+  });
+
+  /**
+   * Safely retrieves the value of a specific attribute from a node's attributes object.
+   *
+   * @param nodeAttributes - An object representing attribute key-value pairs,
+   *                         where each value can be a string, null, or undefined.
+   * @param attributeName - The name of the attribute to retrieve.
+   *
+   * @returns The value of the attribute if it exists (even if null), or `undefined` if the key is not present.
+   */
+  const getAttributeValue = (
+    nodeAttributes: Record<string, string | null | undefined>,
+    attributeName: string,
+  ) => {
+    if (attributeName in nodeAttributes) {
+      return nodeAttributes[attributeName];
+    }
+    return undefined;
+  };
+
+  /**
+   * Inserts new step before step index
+   * @param index - Step index.
+   */
+  const handleAddStepBefore = useCallback(
+    (index: number) => {
+      const newStepContentNode = structuredClone(DEFAULT_STEP);
+      const children = [...formData];
+      children.splice(index, 0, newStepContentNode);
+      setFormData(children);
+    },
+    [formData],
+  );
+
+  /**
+   * Inserts new step after step index
+   * @param index - Step index.
+   */
+  const handleAddStepAfter = useCallback(
+    (index: number) => {
+      const newTabContentNode = structuredClone(DEFAULT_STEP);
+      const children = [...formData];
+      if (index + 1 >= formData.length) {
+        children.push(newTabContentNode);
+      } else {
+        children.splice(index + 1, 0, newTabContentNode);
+      }
+
+      setFormData(children);
+    },
+    [formData],
+  );
+
+  /**
+   * Adds a step to the end
+   */
+  const handleAddStep = useCallback(() => {
+    const children = [...formData];
+    const newTabContentNode = structuredClone(DEFAULT_STEP);
+    children.push(newTabContentNode);
+    setFormData(children);
+  }, [formData]);
+
+  /**
+   * Reverts changes
+   */
+  const handleCancel = () => {
+    setIsConfiguring(false);
+  };
+
+  /**
+   * Removes step at tab index
+   * @param index - Step index.
+   */
+  const handleRemoveStep = useCallback(
+    (index: number) => {
+      const children = [...formData];
+      children.splice(index, 1);
+      setFormData(children);
+    },
+    [formData],
+  );
+
+  /**
+   * Saves changes
+   * inserts new node with updated content
+   * removes the original
+   * this flow is work around for not being able to create custom directive node without cloning the directives plugin
+   * the tabContent directives dont appear in the lexical tree, probably because the lexical DirectiveNode extends DecoratorNode which does not support children
+   * the hasChildren property specifies that a directive can have children, but this does not add implementing append, getChildren, etc to the lexical node
+   */
+  const handleSubmit = useCallback(async () => {
+    setIsConfiguring(false);
+    if (!parentEditor) return;
+
+    parentEditor.update(() => {
+      const nextSibling = lexicalNode.getNextSibling();
+      if (nextSibling) {
+        nextSibling.selectStart();
+      } else {
+        lexicalNode.selectEnd();
+      }
+    });
+    //selection is not immediate
+    await delay(50);
+
+    // Insert a brand new stepper directive node with updated tabs using markdown
+    // using the insertMarkdown method ensures new node will have correct position information so nested content displays correctly
+    // tried hard to find an alternate solution that would allow me to simply update existing mdastnode, but no solution found
+    // since position data is generated from markdown and mdast utilities during parsing
+    parentEditor.update(() => {
+      const attributes: Record<string, string> = { color: 'transparent' };
+      if (backgroundColor) attributes['backgroundColor'] = backgroundColor;
+      if (contentWidth) attributes['contentWidth'] = contentWidth;
+      const mdast: ContainerDirective = {
+        type: 'containerDirective',
+        name: 'steps',
+        attributes,
+        children: [...formData],
+      };
+
+      const childMarkdown = convertMdastToMarkdown(mdast as Mdast.RootContent);
+      insertMarkdown(childMarkdown);
+    });
+
+    //selection is not immediate
+    await delay(50);
+
+    //remove original node
+    parentEditor.update(() => {
+      lexicalNode.remove();
+    });
+  }, [
+    insertMarkdown,
+    formData,
+    backgroundColor,
+    contentWidth,
+    lexicalNode,
+    parentEditor,
+  ]);
+
+  const handleClearColor = useCallback(() => {
+    setColorPickerAnchor(null);
+    skipNextCloseRebuildRef.current = true;
+    setOverrideColor('');
+    parentEditor.update(
+      () => {
+        const attrs = { ...mdastNode.attributes };
+        delete attrs.backgroundColor;
+        lexicalNode.setMdastNode({ ...mdastNode, attributes: attrs });
+      },
+      { discrete: true },
+    );
+  }, [lexicalNode, mdastNode, parentEditor]);
+
+  /**
+   * Handle Next Step
+   * @param event
+   */
+  const handleNext = useCallback(
+    (event: React.SyntheticEvent) => {
+      setStep(step + 1);
+    },
+    [step],
+  );
+
+  /**
+   * Handle Previous Step
+   * @param event
+   */
+  const handlePrevious = useCallback(
+    (event: React.SyntheticEvent) => {
+      setStep(step - 1);
+    },
+    [step],
+  );
+
+  /**
+   * Reset step to beginning
+   * @param event
+   */
+  const handleReset = (event: React.SyntheticEvent) => {
+    setStep(0);
+  };
+
+  /**
+   * Set step to a given value
+   * @param event
+   */
+  const handleStepChange = (newValue: number) => {
+    setStep(newValue);
+  };
+
+  /**
+   * Updates step title text
+   * @param index - Step index.
+   */
+  const handleUpdateStepText = useCallback(
+    (index: number, text: string) => {
+      const children = [...formData];
+      children[index].attributes['title'] = text;
+      setFormData(children);
+    },
+    [formData],
+  );
+
+  /**
+   * list item props for Step Options
+   */
+  const listItemProps: TypographyOwnProps = {
+    color: 'primary',
+    fontSize: 'small',
+    fontWeight: 'lighter',
+    textTransform: 'none',
+  };
+
+  /**
+   * Turns editing on
+   * Triggers Modal
+   */
+  const handleConfigure = useCallback(() => {
+    setIsConfiguring(!isConfiguring);
+  }, [isConfiguring]);
+
+  /**
+   * UE Applies block style overrides
+   */
+  useEffect(() => {
+    if (mdastNode.attributes.style) {
+      try {
+        const theSx = parseStyleString(mdastNode.attributes.style);
+        setSxProps(theSx);
+      } catch (e) {
+        // no styles applied
+      }
+    }
+  }, [mdastNode]);
+
+  /**
+   * Moves focus to the step heading on step change so NVDA announces it.
+   * Player only - skips the first render so the initially-active step
+   * doesn't steal focus on page load.
+   */
+  useEffect(() => {
+    const isFirstRender = isFirstStepRenderRef.current;
+    isFirstStepRenderRef.current = false;
+
+    if (isFirstRender || !isPlayback) {
+      return;
+    }
+
+    headingRef.current?.focus();
+  }, [step, isPlayback]);
+
+  /**
+   * UE calculates step count
+   */
+  useEffect(() => {
+    let maxSteps = 0;
+    for (let i = 0; i < mdastNode.children.length; i++) {
+      if (mdastNode.children[i].name === 'stepContent') {
+        maxSteps++;
+      }
+    }
+    setStepCount(maxSteps);
+  }, [mdastNode?.children?.length]);
+
+  // Sync backgroundColor from mdastNode
+  useEffect(() => {
+    const bgColor = mdastNode?.attributes?.backgroundColor ?? '';
+    setOverrideColor(bgColor);
+  }, [mdastNode]);
+
+  // Sync contentWidth from mdastNode
+  useEffect(() => {
+    setContentWidth(mdastNode.attributes.contentWidth);
+  }, [mdastNode]);
+
+  const outerSx: SxProps = backgroundColor
+    ? {
+        boxShadow: `0 0 0 100vmax ${backgroundColor}`,
+        clipPath: `inset(0 -100vmax 0)`,
+        backgroundColor,
+        paddingTop: blockPadding,
+        paddingBottom: blockPadding,
+      }
+    : {};
+
+  /**
+   * Render Steps and Nested Content
+   */
+  return (
+    <>
+      <Box
+        ref={containerRef}
+        {...(backgroundColor ? { 'data-bgcolor': 'true' } : {})}
+        {...(contentWidth !== undefined
+          ? { 'data-block-override': 'true' }
+          : {})}
+        {...(contentWidth !== undefined
+          ? {
+              style: {
+                '--block-max-width': blockMaxWidth ?? 'none',
+              } as CSSProperties,
+            }
+          : {})}
+        sx={{
+          padding: 0,
+          position: 'relative',
+          ...outerSx,
+          ...sxProps,
+          ...(blockMaxWidth
+            ? {
+                maxWidth: blockMaxWidth,
+                marginLeft: 'auto',
+                marginRight: 'auto',
+              }
+            : {}),
+          marginTop: 0,
+          marginBottom: 0,
+        }}
+      >
+        <Stack
+          direction="row"
+          spacing={1}
+          sx={{
+            display: 'flex',
+            justifyContent: 'center',
+            alignContent: 'center',
+            alignItems: 'center',
+          }}
+        >
+          <ButtonIcon
+            id="previous-step"
+            name="previous-step"
+            tooltip="Previous Step"
+            props={{
+              disabled: step <= 0,
+              onClick: handlePrevious,
+            }}
+            sxProps={{
+              width: '48px',
+              height: '48px',
+            }}
+          >
+            <div style={{ position: 'relative' }}>
+              <ArrowBackIosIcon
+                fontSize="large"
+                sx={{
+                  position: 'absolute',
+                  left: '-12px',
+                  top: '-18px',
+                }}
+              />
+            </div>
+          </ButtonIcon>
+
+          <Stack direction="column" sx={{ flexGrow: 1 }}>
+            <StepsContext.Provider value={{ step }}>
+              <div>
+                {!isPlayback && (
+                  <Box
+                    sx={{
+                      backgroundColor:
+                        muiTheme.palette.mode === 'dark'
+                          ? '#282b30e6'
+                          : '#EEEEEEe6',
+                      position: 'absolute',
+                      display: 'flex',
+                      top: backgroundColor ? blockPadding : 0,
+                      right: menuRight,
+                    }}
+                  >
+                    <Tooltip title="Edit Steps Settings">
+                      <IconButton onClick={handleConfigure}>
+                        <EditIcon />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Block Appearance">
+                      <IconButton
+                        onClick={() => setBlockAppearanceOpen(true)}
+                        size="small"
+                      >
+                        <PaletteIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <BackgroundColorTrigger
+                      currentColor={
+                        backgroundColor ? { color: pendingColor } : undefined
+                      }
+                      onTrigger={openPicker}
+                    />
+                    <InsertLineReturnButton
+                      parentEditor={parentEditor}
+                      lexicalNode={lexicalNode}
+                    />
+                    <DeleteIconButton
+                      onDelete={() => {
+                        parentEditor.update(() => {
+                          if (lexicalNode.getPreviousSibling()) {
+                            lexicalNode.selectPrevious();
+                          } else {
+                            lexicalNode.selectNext();
+                          }
+                          lexicalNode.remove();
+                        });
+                      }}
+                    />
+                  </Box>
+                )}
+              </div>
+              {/* title  */}
+              <Stack
+                direction="column"
+                sx={{
+                  padding: 2,
+                  boxShadow: 2,
+                  borderColor: (theme: any) => `${theme.palette.divider}`,
+                  borderStyle: 'solid',
+                  borderWidth: '1px',
+                  borderRadius: 1,
+                  backgroundColor: (theme: any) =>
+                    theme.palette.background.paper,
+                  paddingRight: isPlayback ? 2 : '100px',
+                }}
+              >
+                <Box
+                  sx={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Typography
+                    ref={headingRef}
+                    tabIndex={-1}
+                    sx={{ padding: 2 }}
+                    variant="h2"
+                  >
+                    {title}
+                  </Typography>
+                </Box>
+
+                <NestedLexicalEditor<ContainerDirective>
+                  block={true}
+                  getContent={(node) => {
+                    return node.children;
+                  }}
+                  getUpdatedMdastNode={(node, children: any) => ({
+                    ...node,
+                    children,
+                  })}
+                  contentEditableProps={{
+                    'aria-label': title
+                      ? `${title} step content`
+                      : 'Step content',
+                  }}
+                />
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  sx={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignContent: 'center',
+                    alignItems: 'center',
+                    paddingTop: 2,
+                  }}
+                >
+                  {Array.from({ length: stepCount }).map((_, index) => (
+                    <ButtonIcon
+                      {...a11yStepProps(index)}
+                      name="reset-step"
+                      tooltip={`Step ${index + 1}`}
+                      props={{
+                        id: `step-${index}`,
+                        'aria-controls': `tabpanel-${index}`,
+                        'aria-label': `Step ${index + 1}`,
+                        onClick: () => handleStepChange(index),
+                        'aria-current': index === step ? 'step' : undefined,
+                      }}
+                      sxProps={{ minWidth: '32px' }}
+                    >
+                      <Typography
+                        sx={{
+                          textDecoration:
+                            index === step ? 'underline' : undefined,
+                        }}
+                      >
+                        {index + 1}
+                      </Typography>
+                    </ButtonIcon>
+                  ))}
+                  <ButtonIcon
+                    id="reset-step"
+                    name="reset-step"
+                    tooltip="Start Again"
+                    props={{
+                      disabled: step === 0,
+                      onClick: handleReset,
+                    }}
+                  >
+                    <RefreshIcon fontSize="medium" />
+                  </ButtonIcon>
+                </Stack>
+              </Stack>
+            </StepsContext.Provider>
+          </Stack>
+
+          <ButtonIcon
+            id="next-step"
+            name="next-step"
+            tooltip="Next Step"
+            props={{
+              disabled: step >= stepCount - 1,
+              onClick: handleNext,
+            }}
+            sxProps={{
+              width: '48px',
+              height: '48px',
+            }}
+          >
+            <div style={{ position: 'relative' }}>
+              <ArrowForwardIosIcon
+                fontSize="large"
+                sx={{
+                  position: 'absolute',
+                  left: '-12px',
+                  top: '-18px',
+                }}
+              />
+            </div>
+          </ButtonIcon>
+        </Stack>
+      </Box>
+
+      <BlockAppearanceForm
+        open={blockAppearanceOpen}
+        currentContentWidth={contentWidth}
+        onClose={() => setBlockAppearanceOpen(false)}
+        onSave={(newContentWidth: ContentWidthEnum | undefined) => {
+          setContentWidth(newContentWidth);
+          parentEditor.update(
+            () => {
+              const attrs = { ...mdastNode.attributes };
+              if (newContentWidth) {
+                attrs.contentWidth = newContentWidth;
+              } else {
+                delete attrs.contentWidth;
+              }
+              lexicalNode.setMdastNode({ ...mdastNode, attributes: attrs });
+            },
+            { discrete: true },
+          );
+        }}
+      />
+
+      <ColorSelectionPopover
+        anchorEl={colorPickerAnchor}
+        onClose={() => {
+          setColorPickerAnchor(null);
+          if (skipNextCloseRebuildRef.current) {
+            skipNextCloseRebuildRef.current = false;
+            return;
+          }
+          const latest = pendingColorRef.current;
+          if (latest !== backgroundColor) {
+            setBackgroundColor(latest);
+            parentEditor.update(
+              () => {
+                const attrs = { ...mdastNode.attributes };
+                if (latest) {
+                  attrs.backgroundColor = latest;
+                } else {
+                  delete attrs.backgroundColor;
+                }
+                lexicalNode.setMdastNode({ ...mdastNode, attributes: attrs });
+              },
+              { discrete: true },
+            );
+          }
+        }}
+        lastColor={pendingColor}
+        palette={SHAPE_PRESET_COLORS}
+        onPickColor={(color) => {
+          setPendingColorAndRef(color);
+        }}
+        onClear={handleClearColor}
+        noneLabel="No background"
+      />
+
+      {isConfiguring && (
+        <ModalDialog
+          maxWidth="md"
+          title="Edit Steps"
+          buttons={['Cancel', 'Apply']}
+          dialogProps={{
+            open: true,
+          }}
+          handleAction={(index: number) => {
+            if (index === 0) {
+              handleCancel();
+            } else {
+              handleSubmit();
+            }
+          }}
+        >
+          <Paper
+            variant="outlined"
+            sx={{
+              p: 2,
+            }}
+          >
+            <Stack direction="column">
+              <>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'flex-start',
+                    width: '100%',
+                  }}
+                >
+                  <ButtonMinorUi
+                    startIcon={<AddIcon />}
+                    onClick={handleAddStep}
+                  >
+                    Add Step
+                  </ButtonMinorUi>
+                </div>
+                {formData.map(
+                  (
+                    tabContent: BlockContent | DefinitionContent,
+                    index: number,
+                  ) => {
+                    if (
+                      tabContent.type === 'containerDirective' &&
+                      tabContent.attributes &&
+                      Object.keys(tabContent.attributes)
+                    ) {
+                      const theTitle = getAttributeValue(
+                        tabContent.attributes,
+                        'title',
+                      );
+
+                      return (
+                        <Stack direction="row">
+                          <TextFieldMainUi
+                            value={theTitle}
+                            onChange={(textValue: string) => {
+                              handleUpdateStepText(index, textValue);
+                            }}
+                          />
+                          <ButtonOptions
+                            optionButton={(
+                              handleClick:
+                                | React.MouseEventHandler<HTMLButtonElement>
+                                | undefined,
+                              tooltip: string,
+                            ) => {
+                              return (
+                                <IconButton
+                                  aria-label="tab options"
+                                  sx={{
+                                    color: 'primary',
+                                    maxHeight: '30px',
+                                    marginTop: '12px',
+                                  }}
+                                  onClick={handleClick}
+                                >
+                                  <MoreVertIcon
+                                    fontSize="inherit"
+                                    color="inherit"
+                                  />
+                                </IconButton>
+                              );
+                            }}
+                            closeOnClick={true}
+                          >
+                            <List
+                              sx={{
+                                backgroundColor: (theme: any) =>
+                                  `${theme.nav.fill}`,
+                                color: (theme: any) => `${theme.nav.icon}`,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                width: '100%',
+                                height: 'auto',
+                              }}
+                              component="nav"
+                            >
+                              <ListItemButton
+                                sx={{
+                                  height: 30,
+                                }}
+                                onClick={(event) => {
+                                  handleAddStepBefore(index);
+                                }}
+                              >
+                                <ListItemIcon
+                                  sx={{
+                                    padding: '0px',
+                                    margin: '0px',
+                                    marginRight: '2px',
+                                    minWidth: '0px',
+                                  }}
+                                >
+                                  <AddIcon />
+                                </ListItemIcon>
+                                <ListItemText
+                                  primary="Insert Step Before"
+                                  slotProps={{ primary: listItemProps }}
+                                />
+                              </ListItemButton>
+                              <ListItemButton
+                                sx={{
+                                  height: 30,
+                                }}
+                                onClick={(event) => {
+                                  handleAddStepAfter(index);
+                                }}
+                              >
+                                <ListItemIcon
+                                  sx={{
+                                    padding: '0px',
+                                    margin: '0px',
+                                    marginRight: '2px',
+                                    minWidth: '0px',
+                                  }}
+                                >
+                                  <AddIcon />
+                                </ListItemIcon>
+                                <ListItemText
+                                  primary="Insert Step After"
+                                  slotProps={{ primary: listItemProps }}
+                                />
+                              </ListItemButton>
+                              <ListItemButton
+                                sx={{
+                                  height: 30,
+                                }}
+                                onClick={(event) => {
+                                  handleRemoveStep(index);
+                                }}
+                              >
+                                <ListItemIcon
+                                  sx={{
+                                    padding: '0px',
+                                    margin: '0px',
+                                    marginRight: '2px',
+                                    minWidth: '0px',
+                                  }}
+                                >
+                                  <DeleteOutlineIcon />
+                                </ListItemIcon>
+                                <ListItemText
+                                  primary="Remove Tab"
+                                  slotProps={{ primary: listItemProps }}
+                                />
+                              </ListItemButton>
+                            </List>
+                          </ButtonOptions>
+                        </Stack>
+                      );
+                    }
+                    return null;
+                  },
+                )}
+              </>
+            </Stack>
+          </Paper>
+        </ModalDialog>
+      )}
+    </>
+  );
+};

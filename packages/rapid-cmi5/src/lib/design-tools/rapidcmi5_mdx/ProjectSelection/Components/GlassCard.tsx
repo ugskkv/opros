@@ -1,0 +1,81 @@
+import { ReactNode } from 'react';
+import { Box, Paper, PaperProps, Typography, useTheme } from '@mui/material';
+import { alpha } from '@mui/material/styles';
+
+export interface GlassCardProps extends PaperProps {
+  ariaLabelId?: string;
+  title: string;
+  icon: ReactNode;
+  headerAction?: ReactNode;
+}
+export function GlassCard({
+  children,
+  ariaLabelId,
+  title,
+  icon,
+  headerAction,
+  sx,
+  ...props
+}: GlassCardProps) {
+  const theme = useTheme();
+  const { palette } = theme;
+
+  const backgroundGradient = `linear-gradient(
+  135deg,
+  ${palette.primary.main} 0%,
+
+  ${palette.primary.dark} 100%
+)`;
+  const boxShadow = `0 8px 20px ${alpha(palette.primary.main, 0)}`;
+
+  return (
+    <Paper
+      elevation={0}
+      {...props}
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0,
+        background: theme.gradients.backgroundPanel,
+        backdropFilter: 'blur(10px)',
+        border: `1px solid ${alpha(theme.palette.divider, 0.08)}`,
+        borderRadius: 2,
+        p: 3,
+        animation: 'fadeInUp 0.6s ease-out 0.2s both',
+
+        ...(typeof sx === 'function' ? sx(theme) : sx),
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+        <Box
+          sx={{
+            width: 40,
+            height: 40,
+            borderRadius: 2,
+            background: backgroundGradient,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            mr: 1,
+            boxShadow: boxShadow,
+          }}
+        >
+          {icon}
+        </Box>
+        <Typography
+          id={ariaLabelId}
+          variant="h2"
+          sx={{
+            fontFamily: '"Space Mono", monospace',
+            fontWeight: 600,
+            fontSize: '18px',
+          }}
+        >
+          {title}
+        </Typography>
+        {headerAction && <Box sx={{ ml: 'auto' }}>{headerAction}</Box>}
+      </Box>
+      {children}
+    </Paper>
+  );
+}

@@ -1,0 +1,42 @@
+{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ES2020",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "sourceMap": true,
+    "strict": true,
+    "strictPropertyInitialization": false,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "rootDir": ".",
+    "declaration": false,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "importHelpers": true,
+    "lib": ["es2021", "dom"],
+    "skipLibCheck": true,
+    "skipDefaultLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@rangeos-nx/frontend/clients/devops-api": [
+        "libs/frontend/clients/devops-api/src/index.ts"
+      ],
+      "@rangeos-nx/frontend/clients/lms-api": [
+        "libs/frontend/clients/lms-api/src/index.ts"
+      ],
+      "@rangeos-nx/frontend/clients/hooks": [
+        "libs/frontend/clients/hooks/src/index.ts"
+      ],
+      "@rapid-cmi5/cmi5-build/backend": [
+        "libs/cmi5-build/backend/src/index.ts"
+      ],
+      "@rapid-cmi5/keycloak": ["libs/keycloak/src/index.ts"],
+      "@rapid-cmi5/cmi5-build-common": ["packages/common/src/index.ts"],
+      "@rapid-cmi5/react-editor": ["packages/rapid-cmi5/src/index.ts"],
+      "@rapid-cmi5/ui": ["packages/ui/src/index.ts"]
+    }
+  },
+  "exclude": ["**/node_modules", "**/.*/", "tmp"]
+}

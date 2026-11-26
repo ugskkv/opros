@@ -1,0 +1,494 @@
+import { useContext, useMemo, useState } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
+import {
+  rangeConsoleDataAttemptsSel,
+  rangeConsoleDataErrorSel,
+  rangeDataAttemptsSel,
+  rangeDataErrorSel,
+  setRangeConsoleData,
+  setRangeDataAttempts,
+} from '../../redux/auReducer';
+import { ScenarioUpdatesContext } from './ScenarioUpdatesContext';
+
+/* MUI */
+import {
+  Alert,
+  AlertTitle,
+  Box,
+  Divider,
+  IconButton,
+  ListItemIcon,
+  Stack,
+  SxProps,
+  Tabs,
+  Tooltip,
+  Typography,
+} from '@mui/material';
+
+/* Icons*/
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import AssignmentIndIcon from '@mui/icons-material/AssignmentInd';
+import AutoModeIcon from '@mui/icons-material/AutoMode';
+import ReplayIcon from '@mui/icons-material/Replay';
+import TerminalIcon from '@mui/icons-material/Terminal';
+
+import {
+  confirmDeleteButtonText,
+  debugRangeId,
+  debugScenarioId,
+  deletePrompt,
+  deleteTitle,
+} from './constants';
+import RangeResources from './list-views/RangeResources';
+import ScenarioModals from './ScenarioModals';
+import TimeClock from './TimeClock';
+import { numRetries } from '../../hooks/useCMI5Session';
+import { classChangeModalId } from '../CourseModals';
+import ScenarioProgress from './ScenarioProgress';
+import { useAutoGraderProgress } from './hooks/useAutoGraderProgress';
+import AutoGraderSubscription from './graph/AutoGraderSubscription';
+import {
+  DeployedScenario,
+  DeployedScenarioDetailStatusEnum,
+} from '@rangeos-nx/frontend/clients/devops-api';
+import {
+  queryKeyRangeResourceContainers,
+  getScenarioStatusIcon,
+  Topic,
+  AutoGraderEvent,
+} from '@rangeos-nx/frontend/clients/hooks';
+import {
+  AuContextProps,
+  OuterStyle,
+  ScenarioContent,
+} from '@rapid-cmi5/cmi5-build-common';
+import {
+  ButtonMainUi,
+  setModal,
+  ButtonMinorUi,
+  OverflowTypography,
+  TabMainUi,
+  maxFormWidths,
+  useLessonThemeStyles,
+  useCoursePresentation,
+} from '@rapid-cmi5/ui';
+
+/**
+ * Slide that displays a Deployed Scenario status, VMs, Containers, and provides Consoles access
+ * Requires ScenarioWrapper at the top of
+ * @returns
+ */
+function ScenarioConsoles({
+  auProps,
+  content,
+  innerSx,
+  outerSx,
+  outerStyle,
+}: {
+  auProps: Partial<AuContextProps>;
+  content: ScenarioContent;
+  innerSx?: SxProps;
+  outerSx?: SxProps;
+  outerStyle?: OuterStyle;
+}) {
+  const dispatch = useDispatch();
+  const rangeDataError = useSelector(rangeDataErrorSel);
+  const rangeConsoleDataError = useSelector(rangeConsoleDataErrorSel);
+  const numRangeDataAttempts = useSelector(rangeDataAttemptsSel);
+  const numRangeConsoleDataAttempts = useSelector(rangeConsoleDataAttemptsSel);
+  const [currentTab, setCurrentTab] = useState(0);
+
+  const { rangeId, scenarioId } = useContext(ScenarioUpdatesContext);
+
+  //REF debug scnearioId
+  // const rangeId = debugRangeId;
+  // const scenarioId = debugScenarioId;
+
+  /* Lesson Theme */
+  const { rc5Theme } = useCoursePresentation();
+  const { outerActivitySxWithConstrainedWidth } = useLessonThemeStyles(
+    rc5Theme,
+    maxFormWidths.scenarioPlayback,
+  );
+
+  /**
+   * REF UE debug
+   */
+  // useEffect(() => {
+  //   console.log('scenarioId', scenarioId);
+  //   console.log('rangeDataError', rangeDataError);
+  //   console.log('numRangeDataAttempts', '' + numRangeDataAttempts + '/5');
+  //   console.log('rangeConsoleDataError', rangeConsoleDataError);
+  //   console.log(
+  //     'numRangeConsoleDataAttempts',
+  //     '' + numRangeConsoleDataAttempts + '/5',
+  //   );
+  // }, [
+  //   rangeDataError,
+  //   numRangeDataAttempts,
+  //   numRangeDataAttempts,
+  //   rangeConsoleDataError,
+  //   scenarioId,
+  // ]);
+
+  const handleChangeTab = (event: React.SyntheticEvent, newValue: number) => {
+    setCurrentTab(newValue);
+  };
+
+  const {
+    getActivityCache,
+    setActivityCache,
+    isAuthenticated,
+    isTestMode,
+    setProgress,
+    submitScore,
+  } = auProps;
+
+  // The logic for progress a scenario based on Auto Graders will go here
+  // We need to lift the logic outside of the auto graders tab so that we can complete autograder tasks even when
+  // we are not in the autograders tab.
+  const {
+    finishedTaskUUIDs,
+    labProgress,
+    autoGraders,
+    markCompleted,
+    agsLoaded,
+    agsError,
+    retryAutoGraders,
+  } = useAutoGraderProgress({
+    isAuthenticated,
+    isTestMode,
+    setProgress,
+    getActivityCache,
+    setActivityCache,
+    submitScore,
+    scenarioContent: content,
+  });
+
+  return (
+    <Box
+      id="scenario-activity"
+      className="paper-activity"
+      sx={{
+        //REF backgroundColor: 'background.default',
+        ...outerSx,
+      }}
+      {...outerStyle}
+    >
+      <Box sx={{ ...innerSx }}>
+        <Typography color="text.primary" variant="caption">
+          Scenario
+        </Typography>
+
+        {(!rangeDataError || numRangeDataAttempts < numRetries) &&
+          (!rangeConsoleDataError ||
+            numRangeConsoleDataAttempts < numRetries) &&
+          !scenarioId && (
+            <Typography color="text.primary">Loading...</Typography>
+          )}
+
+        {autoGraders && (
+          // This is needed so that we can get autograder completion data
+          // without having the autograders tab open
+          <AutoGraderSubscription
+            rangeId={rangeId}
+            scenarioId={scenarioId}
+            onUpdate={(results: AutoGraderEvent[]) => {
+              results.forEach(({ result, autoGrader }) => {
+                if (result.success == true) markCompleted(autoGrader.uuid);
+              });
+            }}
+          />
+        )}
+
+        {rangeDataError && numRangeDataAttempts === numRetries && (
+          <Alert
+            sx={{ backgroundColor: 'transparent', borderStyle: 'none' }}
+            severity="error"
+          >
+            <AlertTitle>{rangeDataError}</AlertTitle>
+            <ButtonMainUi
+              startIcon={<ReplayIcon />}
+              onClick={() => {
+                dispatch(setRangeDataAttempts(-1));
+              }}
+            >
+              Try Again
+            </ButtonMainUi>
+            <br />
+            <br />
+            <ButtonMainUi
+              startIcon={<AssignmentIndIcon />}
+              onClick={() => {
+                dispatch(
+                  setModal({
+                    type: classChangeModalId,
+                    id: '',
+                    name: '',
+                  }),
+                );
+              }}
+            >
+              Change ClassRoom
+            </ButtonMainUi>
+          </Alert>
+        )}
+        {!rangeDataError &&
+          rangeConsoleDataError &&
+          numRangeConsoleDataAttempts === numRetries && (
+            <Alert
+              sx={{ backgroundColor: 'transparent', borderStyle: 'none' }}
+              severity="error"
+            >
+              <AlertTitle>{rangeConsoleDataError}</AlertTitle>
+              <ButtonMinorUi
+                onClick={() => {
+                  dispatch(setRangeConsoleData(-1));
+                }}
+              >
+                Try Again
+              </ButtonMinorUi>
+            </Alert>
+          )}
+        {scenarioId && (
+          <>
+            <ScenarioStatus
+              currentTab={currentTab}
+              handleChangeTab={handleChangeTab}
+              slideContent={content}
+            />
+            <Divider sx={{ margin: 1, marginLeft: 0 }} />
+            {agsError && (
+              <Alert
+                sx={{ backgroundColor: 'transparent', borderStyle: 'none' }}
+                severity="error"
+              >
+                <AlertTitle>{agsError}</AlertTitle>
+                <ButtonMinorUi
+                  startIcon={<ReplayIcon />}
+                  onClick={retryAutoGraders}
+                >
+                  Try Again
+                </ButtonMinorUi>
+              </Alert>
+            )}
+            {currentTab === 0 && (
+              <>
+                <RangeResources />
+                <RangeResources
+                  queryKey={queryKeyRangeResourceContainers}
+                  title="Containers"
+                  topic={Topic.ResourceContainer}
+                />
+              </>
+            )}
+            {currentTab === 1 && autoGraders.length > 0 && (
+              <ScenarioProgress
+                autoGraders={autoGraders}
+                labProgress={labProgress}
+                finishedTasks={finishedTaskUUIDs}
+              />
+            )}
+            {currentTab === 1 && agsLoaded && autoGraders.length === 0 && (
+              <Alert
+                severity="info"
+                sx={{
+                  backgroundColor: 'transparent',
+                  borderStyle: 'none',
+                  width: 'auto',
+                  height: '48px',
+                }}
+              >
+                No AutoGraders Found
+              </Alert>
+            )}
+          </>
+        )}
+      </Box>
+    </Box>
+  );
+}
+
+export default ScenarioConsoles;
+
+/**
+ * Renders scenario name and status if scenario is not ready
+ * @returns
+ */
+function ScenarioStatus({
+  currentTab,
+  handleChangeTab,
+  slideContent,
+}: {
+  currentTab: number;
+  handleChangeTab: (event: React.SyntheticEvent, newValue: number) => void;
+  slideContent: ScenarioContent;
+}) {
+  const [isClockShowing, setIsClockShowing] = useState(false);
+
+  const { getUpdates, rangeId, scenarioStatusChangeCounter } = useContext(
+    ScenarioUpdatesContext,
+  );
+
+  const toggleClock = () => {
+    setIsClockShowing(!isClockShowing);
+  };
+
+  const getScenarioStatusChild = useMemo(() => {
+    let scenarioWithStatus: Partial<DeployedScenario | null> = null;
+
+    if (debugRangeId && debugScenarioId) {
+      console.log('Debugging');
+      scenarioWithStatus = { status: 'Creating', message: 'Creating' };
+    } else {
+      const scenarios = Object.values(getUpdates(Topic.ResourceScenario));
+      scenarioWithStatus = scenarios.length > 0 ? scenarios[0] : null;
+    }
+
+    // don't want to display icon when Running
+    if (scenarioWithStatus) {
+      const rowStatus = getScenarioStatusIcon(
+        scenarioWithStatus.status,
+        scenarioWithStatus.message,
+        true, // show color
+        true, // show hover
+      );
+      return (
+        <Stack
+          direction="row"
+          // Scenario header is present once the scenario is deployed (status
+          // known). `data-scenario-status` exposes the lifecycle status; the
+          // status icon below (scenario-status-icon) is only shown while NOT
+          // Ready, so its ABSENCE is the "ready" signal for tests.
+          data-testid="scenario-header"
+          data-scenario-status={scenarioWithStatus.status}
+          sx={{
+            padding: 0,
+            position: 'relative',
+          }}
+        >
+          <OverflowTypography
+            uuid={scenarioWithStatus.uuid}
+            title={scenarioWithStatus?.name || 'Unknown'}
+            variant="h5"
+            sxProps={{
+              fontWeight: 'bold',
+              paddingTop: '4px',
+            }}
+          />
+          {scenarioWithStatus.status !==
+            DeployedScenarioDetailStatusEnum.Ready && (
+            <ListItemIcon
+              // Present only while the scenario is provisioning / errored
+              // (status !== Ready). Tests wait for this to disappear.
+              data-testid="scenario-status-icon"
+              sx={{
+                padding: 0,
+                margin: 0,
+                height: '32px',
+                minWidth: 0,
+              }}
+            >
+              {rowStatus.icon}
+            </ListItemIcon>
+          )}
+          <Stack
+            direction="row"
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              minWidth: '132px',
+            }}
+          >
+            <IconButton
+              aria-label={isClockShowing ? 'Hide Clock' : 'Show Clock'}
+              onClick={toggleClock}
+            >
+              <Tooltip
+                arrow
+                enterDelay={500}
+                enterNextDelay={500}
+                title={isClockShowing ? 'Hide Clock' : 'Show Clock'}
+                placement="bottom"
+              >
+                <AccessTimeIcon />
+              </Tooltip>
+            </IconButton>
+            {isClockShowing && (
+              <TimeClock startDateStr={scenarioWithStatus?.dateCreated || ''} />
+            )}
+          </Stack>
+          <Box
+            sx={{
+              height: '30px',
+              display: 'flex',
+              flexGrow: 1,
+              justifyContent: 'flex-end',
+              marginLeft: '12px',
+            }}
+          >
+            <Tabs
+              orientation="horizontal"
+              aria-label="Scenario Tabs"
+              sx={{ marginTop: 0 }}
+              value={currentTab}
+              onChange={handleChangeTab}
+              slotProps={{
+                indicator: {
+                  sx: {
+                    height: 4,
+                    margin: '12px',
+                    marginLeft: '0px',
+                    marginBottom: 1,
+                  },
+                },
+              }}
+            >
+              <TabMainUi
+                icon={<TerminalIcon color="inherit" fontSize="small" />}
+                iconPosition="start"
+                label="Consoles"
+                style={{ marginBottom: 0 }}
+              />
+              <TabMainUi
+                icon={<AutoModeIcon color="inherit" fontSize="small" />}
+                iconPosition="start"
+                label="AutoGraders"
+                style={{ marginBottom: 0 }}
+              />
+            </Tabs>
+          </Box>
+
+          <ScenarioModals
+            rangeIdSel={rangeId}
+            confirmStopButtonText={confirmDeleteButtonText}
+            stopScenarioMessage={deleteTitle}
+            stopScenarioTitle={deletePrompt}
+          />
+        </Stack>
+      );
+    }
+    return (
+      <Box data-testid="scenario-loading">
+        <OverflowTypography
+          title="Loading..."
+          variant="h5"
+          sxProps={
+            {
+              //fontWeight: 'bold',
+            }
+          }
+        />
+      </Box>
+    );
+  }, [
+    scenarioStatusChangeCounter,
+    getUpdates,
+    isClockShowing,
+    currentTab,
+    handleChangeTab,
+  ]);
+
+  // eslint-disable-next-line react/jsx-no-useless-fragment
+  return <>{getScenarioStatusChild}</>;
+}

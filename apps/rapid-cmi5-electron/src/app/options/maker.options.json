@@ -1,0 +1,69 @@
+{
+  "$schema": "../../../../../node_modules/nx-electron/src/validation/maker.schema.json",
+  "appId": "com.rapidcmi5.app",
+  "productName": "RapidCMI5",
+  "directories": {
+    "output": "dist/executables"
+  },
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "ByLightSDC",
+      "repo": "rapidcmi5",
+      "releaseType": "release"
+    }
+  ],
+  "files": [
+    "**/*",
+    "!openapitools.json",
+    "!migrations.json",
+    "!babel.config.json",
+    "!nx.json",
+    "!tsconfig.base.json",
+    "!.eslintrc.json",
+    "!apps",
+    "!libs",
+    "!documents",
+    "!utils",
+    "!.storybook",
+    "!.vscode",
+    "!.nx",
+    "!.claude"
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64", "arm64"]
+      }
+    ],
+    "icon": "dist/apps/rapid-cmi5-electron/assets/icon.ico"
+  },
+  "linux": {
+    "target": [
+      {
+        "target": "AppImage",
+        "arch": ["x64", "arm64"]
+      }
+    ],
+    "category": "Education",
+    "icon": "dist/apps/rapid-cmi5-electron/assets/icon.png"
+  },
+  "mac": {
+    "target": [
+      {
+        "target": "dmg",
+        "arch": ["x64", "arm64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64", "arm64"]
+      }
+    ],
+    "category": "public.app-category.education",
+    "icon": "dist/apps/rapid-cmi5-electron/assets/icon.icns",
+    "extendInfo": {
+      "CFBundleIconFile": "icon"
+    }
+  }
+}

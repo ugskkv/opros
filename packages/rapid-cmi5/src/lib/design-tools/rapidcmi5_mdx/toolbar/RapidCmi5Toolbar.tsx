@@ -1,0 +1,468 @@
+import React, {
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+
+import {
+  StrikeThroughSupSubToggles,
+  Separator,
+  usePublisher,
+  viewMode$,
+  useCellValue,
+  useRealm,
+  useCellValues,
+  useTranslation,
+} from '@mdxeditor/editor';
+import { CLEAR_HISTORY_COMMAND } from 'lexical';
+
+/** Icons */
+import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
+import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
+import ArtTrackIcon from '@mui/icons-material/ArtTrack';
+import ScreenShareIcon from '@mui/icons-material/ScreenShare';
+import { MarkdownIconSvg } from './constants';
+import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
+
+import { alpha, Box, Divider, Stack, useTheme } from '@mui/material';
+import { useSelector } from 'react-redux';
+
+import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
+import { RC5Context } from '../contexts/RC5Context';
+
+import {
+  editorInPlayback$,
+  courseTheme$,
+  CONTENT_UPDATED_COMMAND,
+  toolbarRect$,
+  maxSlideWidth$,
+  debugLog,
+  useCoursePresentation,
+} from '@rapid-cmi5/ui';
+
+import { displayData } from '../../../redux/courseBuilderReducer';
+import { SlideMenu } from '../menu/SlideMenu';
+import { SaveSlideButton } from './components/SaveSlideButton';
+import { LessonStyleButton } from './components/LessonStyleButton';
+import { BlockTypeSelect } from './components/BlockTypeSelect';
+
+import { InsertAccordion } from './components/InsertAccordion';
+import { InsertAudio } from './components/InsertAudio';
+import { InsertAnimation } from './components/InsertAnimation';
+import { InsertBlockMenu } from './components/InsertBlockMenu';
+import { InsertCodeBlock } from './components/InsertCodeBlock';
+import { InsertFile } from './components/InsertFile';
+import { InsertGrid } from './components/InsertGrid';
+import { InsertImage } from './components/InsertImage';
+import { InsertSteps } from './components/InsertSteps';
+import { InsertTabs } from './components/InsertTabs';
+import { InsertVideo } from './components/InsertVideo';
+import { InsertLayoutBox } from './components/InsertLayoutBox';
+import { InsertLink } from './components/InsertLink';
+import { InsertThematicBreak } from './components/InsertThematicBreak';
+import { InsertTable } from './components/InsertTable';
+import { ColorTextSplitButton } from './components/ColorTextSplitButton';
+import { HighlightSplitButton } from './components/HighlightSplitButton';
+import { LanguageSpanButton } from './components/LanguageSpanButton';
+import { TextFxButton } from './components/TextFxButton';
+
+import { MUIButtonWithTooltip } from './components/MUIButtonWithTooltip';
+import { BoldItalicUnderlineToggles } from './components/BoldItalicUnderlineToggles';
+import { ListsToggle } from './components/ListsToggle';
+import { UndoRedo } from './components/UndoRedo';
+import { InsertQuotes } from './components/InsertQuotes';
+import { InsertStatements } from './components/InsertStatements';
+import { useRC5Prompts } from '../modals/useRC5Prompts';
+
+/**
+ * Layout Constants
+ *
+ */
+const rightToolbarMargin = 25;
+
+/**
+ * A toolbar component that includes all toolbar components.
+ * Notice that some of the buttons will work only if you have the corresponding plugin enabled, so you should use it only for testing purposes.
+ * You'll probably want to create your own toolbar component that includes only the buttons that you need.
+ * @group Toolbar Components
+ */
+export const RapidCmi5Toolbar: React.FC = () => {
+  const changeViewMode = usePublisher(viewMode$);
+  const { getMarkdownData } = useContext(RC5Context);
+  const { rc5Theme } = useCoursePresentation();
+  const realm = useRealm();
+  const viewmode = useCellValue(viewMode$);
+  const content = useSelector(displayData);
+  const [editor] = useLexicalComposerContext();
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const extraToolbarRef = useRef<HTMLDivElement>(null);
+  const [leftToolbarPos, setLeftToolbarPos] = useState<number | 0>(0);
+
+  const [isMoreTextTools, setIsMoreTextTools] = useState(false);
+
+  const isPlayback = useCellValue(editorInPlayback$);
+  const [viewMode] = useCellValues(viewMode$);
+  const t = useTranslation();
+  const theme = useTheme();
+
+  const disabledIconColor = alpha((theme as any).palette.divider, 0.25);
+  const activeIconColor = theme.palette.text.primary;
+
+  const { promptTestInPlayer } = useRC5Prompts();
+
+  /**
+   * themed icon
+   */
+  const markDownIcon = useMemo(() => {
+    if (viewMode == 'source') {
+      return MarkdownIconSvg(disabledIconColor);
+    }
+    return MarkdownIconSvg(activeIconColor);
+  }, [viewMode, disabledIconColor, activeIconColor]);
+
+  /**
+   * UE sets view to Rich Text Editor on mount
+   */
+  useEffect(() => {
+    realm.pub(editorInPlayback$, false);
+    changeViewMode('rich-text');
+  }, []);
+
+  useEffect(() => {
+    realm.pub(courseTheme$, rc5Theme);
+  }, [rc5Theme]);
+
+  useEffect(() => {
+    if (getMarkdownData() !== content) {
+      editor.dispatchCommand(CONTENT_UPDATED_COMMAND, undefined);
+      editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);
+    }
+  }, [content]);
+
+  useEffect(() => {
+    debugLog('viewmode', viewmode);
+  }, [viewmode]);
+
+  /**
+   * Prevent mode buttons from positioning off screen
+   * Mode button parent div has a width that is calculated by screen width minus toolbar left adjusted to create a right margin
+   * Observer ensures it gets updated when the lesson drawer is resized byt he user
+   */
+  useLayoutEffect(() => {
+    if (!toolbarRef.current) return;
+
+    const measure = () => {
+      if (toolbarRef.current) {
+        // Get the position relative to the viewport
+        const rect = toolbarRef.current.getBoundingClientRect();
+
+        //store for other components
+        toolbarRect$.value = rect;
+
+        // Calculate the absolute position relative to the document
+        const left = rect.left + window.scrollX;
+
+        //tool bar left plus 24 px right margin
+        setLeftToolbarPos(left + rightToolbarMargin);
+
+        //set width in css so we can tell activities to ignore content width settings
+        document.documentElement.style.setProperty(
+          '--panel-width',
+          `${rect.left}px`,
+        );
+
+        //max slide width
+        maxSlideWidth$.value = window.innerWidth - rect.left;
+      }
+    };
+
+    const observer = new ResizeObserver(measure);
+    observer.observe(toolbarRef.current);
+
+    return () => observer.disconnect();
+
+    // Ensure the ref is attached to a DOM element and that element exists
+  }, []);
+
+  return (
+    <Box
+      ref={toolbarRef}
+      sx={{
+        backgroundColor: 'background.default',
+        width: '100%',
+        minHeight: '40px',
+        borderBottom: `1px solid ${alpha(theme.palette.divider, 0.15)}`,
+        position: 'sticky',
+        top: 0,
+        left: 0,
+        zIndex: 1500, // Above drawer roots (1400) so toolbar buttons are never blocked
+      }}
+    >
+      {/* Scroll container */}
+      <Box
+        sx={{
+          overflowX: 'auto',
+          overflowY: 'hidden',
+          WebkitOverflowScrolling: 'touch',
+        }}
+      >
+        <Stack direction="column" spacing={1} sx={{ padding: 1 }}>
+          {viewmode === 'rich-text' && !isPlayback && (
+            <Stack direction="row" spacing={1}>
+              <Stack
+                direction="row"
+                spacing={0}
+                sx={{ flexGrow: 1, minWidth: 0 }}
+              >
+                <BoldItalicUnderlineToggles />
+                <ColorTextSplitButton />
+                <HighlightSplitButton />
+
+                <TextFxButton />
+                <Stack
+                  direction="row"
+                  sx={{
+                    borderColor: isMoreTextTools ? 'divider' : 'transparent',
+                    borderRadius: 1,
+                    borderStyle: 'solid',
+                    borderWidth: 1,
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  <MUIButtonWithTooltip
+                    title={
+                      isMoreTextTools
+                        ? 'Less Text Tools...'
+                        : 'More Text Tools...'
+                    }
+                    onClick={() => setIsMoreTextTools(!isMoreTextTools)}
+                  >
+                    {isMoreTextTools ? (
+                      <UnfoldLessIcon fontSize="medium" />
+                    ) : (
+                      <UnfoldMoreIcon fontSize="medium" />
+                    )}
+                  </MUIButtonWithTooltip>
+                  {isMoreTextTools && (
+                    <Stack direction="row" sx={{ marginLeft: -1, }}>
+                      <StrikeThroughSupSubToggles />
+                      <LanguageSpanButton />
+                    </Stack>
+                  )}
+                </Stack>
+                <Separator />
+                <ListsToggle />
+                <InsertLink />
+                <Separator />
+                <BlockTypeSelect />
+                <Separator />
+                <Stack
+                  id="mask-buttons"
+                  ref={extraToolbarRef}
+                  direction="row"
+                  sx={{
+                    display: 'flex',
+                    flexGrow: 1,
+                    minWidth: 0,
+                    position: 'relative',
+                    flexWrap: 'nowrap',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <InsertImage />
+                  <InsertVideo />
+                  <InsertAudio />
+                  <InsertFile />
+                  <InsertCodeBlock />
+                  <InsertGrid />
+                  <InsertLayoutBox />
+                  <InsertAccordion />
+                  <InsertQuotes />
+                  <InsertStatements />
+                  <InsertSteps />
+                  <InsertTable />
+                  <InsertTabs />
+                  <InsertThematicBreak />
+                </Stack>
+                <Stack
+                  id="static"
+                  direction="row"
+                  sx={{
+                    display: 'flex',
+                    justifyContent: 'flex-end',
+                    minWidth: '104px',
+                    flexGrow: 0,
+                    flexShrink: 0,
+                  }}
+                >
+                  <Separator />
+                  <LessonStyleButton />
+                  <InsertAnimation />
+                  <InsertBlockMenu />
+                </Stack>
+              </Stack>
+            </Stack>
+          )}
+          {(viewmode === 'source' ||
+            (viewmode === 'rich-text' && isPlayback)) && (
+            <Box sx={{ minHeight: '32px' }}></Box>
+          )}
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{
+              display: 'flex',
+              alignItems: 'flex-end',
+              width: '100%',
+            }}
+          >
+            <Stack
+              id="save-menu"
+              direction="row"
+              spacing={1}
+              sx={{
+                flexGrow: 1,
+                display: 'flex',
+                alignItems: 'center',
+                maxHeight: '32px',
+              }}
+            >
+              <UndoRedo />
+              <SaveSlideButton />
+            </Stack>
+            <Stack
+              id="slide-menu"
+              direction="row"
+              spacing={1}
+              sx={{
+                background: alpha(theme.palette.primary.light, 0.1), //'background.default',
+                borderRadius: '24px',
+                border: `1px solid ${alpha(theme.palette.primary.main, 0.5)}`,
+                height: '34px',
+                display: 'flex',
+                justifyContent: 'center',
+              }}
+            >
+              <SlideMenu />
+            </Stack>
+            <Stack
+              id="mode-menu"
+              direction="row"
+              spacing={1}
+              sx={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                alignItems: 'center',
+                flexGrow: 1,
+              }}
+            >
+              <Stack
+                direction="row"
+                sx={{
+                  borderRadius: 4,
+                  paddingLeft: 0.5,
+                  paddingRight: 0.5,
+                  height: '34px',
+                  transition:
+                    'transform 120ms ease, background-color 120ms ease',
+                }}
+              >
+                <MUIButtonWithTooltip
+                  title={t('toolbar.richText', 'Edit Rich Text')}
+                  onClick={() => {
+                    changeViewMode('rich-text');
+                    realm.pub(editorInPlayback$, false);
+                  }}
+                  disabled={viewMode === 'rich-text' && !isPlayback}
+                >
+                  <ArtTrackIcon
+                    sx={{
+                      fontSize: '32px',
+                      color:
+                        viewMode === 'rich-text' && !isPlayback
+                          ? disabledIconColor
+                          : activeIconColor,
+                      fill:
+                        viewMode === 'rich-text' && !isPlayback
+                          ? disabledIconColor
+                          : activeIconColor,
+                    }}
+                  />
+                </MUIButtonWithTooltip>
+                <Divider
+                  orientation="vertical"
+                  color="divider"
+                  flexItem
+                  sx={{ mx: 0 }}
+                />
+                <MUIButtonWithTooltip
+                  title="Preview"
+                  onClick={() => {
+                    changeViewMode('rich-text');
+                    realm.pub(editorInPlayback$, true);
+                  }}
+                  disabled={viewMode === 'rich-text' && isPlayback}
+                >
+                  <ScreenShareIcon
+                    sx={{
+                      color:
+                        viewMode === 'rich-text' && isPlayback
+                          ? disabledIconColor
+                          : activeIconColor,
+                      fill:
+                        viewMode === 'rich-text' && isPlayback
+                          ? disabledIconColor
+                          : activeIconColor,
+                    }}
+                  />
+                </MUIButtonWithTooltip>
+
+                <Divider
+                  orientation="vertical"
+                  color="divider"
+                  flexItem
+                  sx={{ mx: 0 }}
+                />
+                <MUIButtonWithTooltip
+                  title="Edit Markdown"
+                  onClick={() => {
+                    changeViewMode('source');
+                  }}
+                  disabled={viewMode === 'source'}
+                >
+                  {markDownIcon}
+                </MUIButtonWithTooltip>
+                <Divider
+                  orientation="vertical"
+                  color="divider"
+                  flexItem
+                  sx={{ mx: 0 }}
+                />
+                {process.env['NODE_ENV'] === 'development' && (
+                  <MUIButtonWithTooltip
+                    title="Launch CMI5 Player"
+                    onClick={() => {
+                      promptTestInPlayer();
+                    }}
+                  >
+                    <RocketLaunchIcon
+                      sx={{
+                        color: activeIconColor,
+                        fill: activeIconColor,
+                      }}
+                    />
+                  </MUIButtonWithTooltip>
+                )}
+              </Stack>
+            </Stack>
+          </Stack>
+        </Stack>
+      </Box>
+    </Box>
+  );
+};
